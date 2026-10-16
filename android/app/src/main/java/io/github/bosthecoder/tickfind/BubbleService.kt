@@ -30,6 +30,8 @@ import kotlin.math.abs
  *  or across to the other edge; it tucks itself back against the nearest side. Long-press it for settings. */
 class BubbleService : Service() {
     companion object {
+        /** Faint while it just sits there; fully visible under the finger. */
+        private const val IDLE = 0.4f
         var running = false; private set
         fun canOverlay(ctx: Context) = Settings.canDrawOverlays(ctx)
         fun start(ctx: Context) {
@@ -41,6 +43,7 @@ class BubbleService : Service() {
 
     private lateinit var wm: WindowManager
     private lateinit var view: FrameLayout
+    private lateinit var icon: ImageView
     private lateinit var lp: WindowManager.LayoutParams
     private lateinit var store: Store
 
@@ -54,17 +57,18 @@ class BubbleService : Service() {
         wm = getSystemService(WindowManager::class.java)
         val size = dp(48)
         view = FrameLayout(this).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xE6262A3A.toInt()); setStroke(dp(1), 0x40FFFFFF) }
-            alpha = 0.75f
-            addView(ImageView(context).apply { setImageResource(R.drawable.ic_search); imageTintList = ColorStateList.valueOf(TEXT) },
-                FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xE6262A3A.toInt()) }
+            alpha = IDLE
         }
+        icon = ImageView(this).apply { setImageResource(R.drawable.ic_search); imageTintList = ColorStateList.valueOf(TEXT) }
+        view.addView(icon, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
         lp = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
             y = store.bubbleY.takeIf { it >= 0 } ?: (resources.displayMetrics.heightPixels * 0.4).toInt()
             x = edgeX(store.bubbleRight, size)
         }
+        centreIcon(store.bubbleRight)
         touch()
         wm.addView(view, lp)
     }
@@ -77,7 +81,11 @@ class BubbleService : Service() {
         super.onDestroy()
     }
 
-    private fun edgeX(right: Boolean, w: Int = lp.width) = if (right) resources.displayMetrics.widthPixels - w + dp(6) else -dp(6)
+    /** How much of the 48dp circle sits past the screen edge: just over half stays on screen, like TickTick's. */
+    private fun hidden() = dp(22)
+    private fun edgeX(right: Boolean, w: Int = lp.width) = if (right) resources.displayMetrics.widthPixels - w + hidden() else -hidden()
+    /** Keeps the icon in the middle of the part that's on screen. */
+    private fun centreIcon(right: Boolean) { icon.translationX = (if (right) -hidden() else hidden()) / 2f }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun touch() {
@@ -99,7 +107,7 @@ class BubbleService : Service() {
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    v.removeCallbacks(longPress); v.alpha = 0.75f
+                    v.removeCallbacks(longPress); v.alpha = IDLE
                     if (!dragging && e.action == MotionEvent.ACTION_UP) open(SearchActivity::class.java)
                     else if (dragging) settle()
                 }
@@ -112,6 +120,7 @@ class BubbleService : Service() {
     private fun settle() {
         val right = lp.x + lp.width / 2 > resources.displayMetrics.widthPixels / 2
         store.bubbleRight = right; store.bubbleY = lp.y
+        centreIcon(right)
         ValueAnimator.ofInt(lp.x, edgeX(right)).apply {
             duration = 180
             addUpdateListener { lp.x = it.animatedValue as Int; if (view.isAttachedToWindow) wm.updateViewLayout(view, lp) }

@@ -11,7 +11,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <AssemblyName>Tickfind</AssemblyName>
     <ApplicationIcon>assets\tickfind.ico</ApplicationIcon>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="assets\tickfind.ico" />
