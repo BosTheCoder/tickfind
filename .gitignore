@@ -1,0 +1,15 @@
+bin/
+obj/
+out/
+token.dat
+tasks.json
+settings.json
+tickfind.log
+tests/bin/
+tests/obj/
+android/.gradle/
+android/build/
+android/app/build/
+android/dist/
+android/local.properties
+.kotlin/

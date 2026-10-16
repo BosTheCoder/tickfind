@@ -1,0 +1,123 @@
+<Window x:Class="Tickfind.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tickfind" Width="640" SizeToContent="Height" Icon="/assets/tickfind.ico"
+        WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        Background="Transparent" Foreground="#F2F2F4"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" GlassFrameThickness="-1" ResizeBorderThickness="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="#F2F2F4"/>
+            <Setter Property="Background" Value="#22FFFFFF"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="B" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="B" Property="Opacity" Value="0.8"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="B" Property="Opacity" Value="0.4"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBox">
+            <Setter Property="Foreground" Value="#F2F2F4"/>
+            <Setter Property="CaretBrush" Value="#F2F2F4"/>
+            <Setter Property="SelectionBrush" Value="#4772FA"/>
+            <Setter Property="Background" Value="#1AFFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost" VerticalScrollBarVisibility="{TemplateBinding VerticalScrollBarVisibility}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="Root" Background="#C0141418" CornerRadius="10" BorderBrush="#30FFFFFF" BorderThickness="1" Padding="14,12,14,10">
+        <Grid>
+            <!-- Search: the box, the matches, a footer with the status and the keys -->
+            <DockPanel x:Name="SearchPage">
+                <DockPanel DockPanel.Dock="Top">
+                    <TextBlock DockPanel.Dock="Left" Text="&#xE721;" FontFamily="{StaticResource Icons}" FontSize="17" Opacity="0.6"
+                               VerticalAlignment="Center" Margin="2,0,10,0"/>
+                    <TextBlock x:Name="GearButton" DockPanel.Dock="Right" Text="&#xE713;" FontFamily="{StaticResource Icons}" FontSize="15"
+                               Opacity="0.6" Cursor="Hand" VerticalAlignment="Center" Margin="12,0,2,0" ToolTip="Settings"/>
+                    <TextBlock x:Name="ExpandButton" DockPanel.Dock="Right" Text="&#xE740;" FontFamily="{StaticResource Icons}" FontSize="14"
+                               Opacity="0.6" Cursor="Hand" VerticalAlignment="Center" ToolTip="Bigger (Ctrl+E)"/>
+                    <Grid>
+                        <TextBox x:Name="Box" Style="{StaticResource Field}" Background="Transparent" Padding="0,4" FontSize="19"/>
+                        <TextBlock x:Name="Hint" Text="Search TickTick" FontSize="19" Opacity="0.35" IsHitTestVisible="False" Margin="2,4,0,0"/>
+                    </Grid>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" TextElement.FontSize="11.5">
+                    <TextBlock x:Name="Keys" DockPanel.Dock="Right" Opacity="0.4" Text="↵ open · Ctrl+↵ TickTick · Ctrl+E bigger"/>
+                    <TextBlock x:Name="Status" Opacity="0.55" TextTrimming="CharacterEllipsis" Cursor="Arrow"/>
+                </DockPanel>
+                <ScrollViewer x:Name="Scroll" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0" Focusable="False">
+                    <StackPanel x:Name="Results"/>
+                </ScrollViewer>
+            </DockPanel>
+
+            <!-- Quick edit: read it, change a little, save; or complete it, or open it in TickTick -->
+            <DockPanel x:Name="EditPage" Visibility="Collapsed">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock x:Name="BackButton" DockPanel.Dock="Left" Text="&#xE72B;" FontFamily="{StaticResource Icons}" FontSize="15"
+                               Opacity="0.7" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Back (Esc)"/>
+                    <Button x:Name="OpenButton" DockPanel.Dock="Right" Content="Open in TickTick" ToolTip="Ctrl+Enter"/>
+                    <TextBlock x:Name="EditList" Opacity="0.6" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <Button x:Name="CompleteButton" DockPanel.Dock="Left" ToolTip="Mark it done in TickTick">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE73E;" FontFamily="{StaticResource Icons}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Complete"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="SaveButton" DockPanel.Dock="Right" Content="Save  (Ctrl+S)" Background="#4772FA"/>
+                    <TextBlock x:Name="EditStatus" Opacity="0.6" FontSize="12" VerticalAlignment="Center" Margin="12,0" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <!-- Asks before anything could be lost: unsaved changes, or a change made in TickTick meanwhile -->
+                <Border x:Name="Banner" DockPanel.Dock="Bottom" Visibility="Collapsed" Background="#40FAA80C" CornerRadius="6" Padding="10,8" Margin="0,10,0,0">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="BannerA" Margin="8,0,0,0"/>
+                            <Button x:Name="BannerB" Margin="8,0,0,0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="BannerText" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBox x:Name="EditTitle" Style="{StaticResource Field}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="PriorityRow" Orientation="Horizontal" Margin="0,8,0,0"/>
+                </StackPanel>
+                <ScrollViewer x:Name="EditScroll" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0" Focusable="False">
+                    <StackPanel>
+                        <TextBox x:Name="EditContent" Style="{StaticResource Field}" AcceptsReturn="True" AcceptsTab="True" TextWrapping="Wrap"
+                                 MinHeight="110" FontFamily="Segoe UI Variable Text, Segoe UI"/>
+                        <StackPanel x:Name="ItemsPanel" Margin="0,8,0,0"/>
+                        <Grid x:Name="AddItemRow" Margin="0,4,0,0" Visibility="Collapsed">
+                            <TextBox x:Name="AddItem" Style="{StaticResource Field}"/>
+                            <TextBlock x:Name="AddItemHint" Text="Add an item, then Enter" Opacity="0.4" IsHitTestVisible="False" Margin="10,6,0,0"/>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </Grid>
+    </Border>
+</Window>

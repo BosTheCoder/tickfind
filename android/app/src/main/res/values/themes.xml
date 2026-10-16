@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The search box: a card floating over whatever app you were in, keyboard up straight away -->
+    <style name="Floating" parent="@android:style/Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.4</item>
+        <item name="android:windowSoftInputMode">stateAlwaysVisible|adjustResize</item>
+        <item name="android:colorAccent">#FF4772FA</item>
+    </style>
+    <style name="Settings" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#FF4772FA</item>
+        <item name="android:windowBackground">#FF0E0E10</item>
+    </style>
+</resources>
