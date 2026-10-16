@@ -1,5 +1,7 @@
 using System.IO;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Tickfind;
 
@@ -19,7 +21,8 @@ public class Settings
     public double Width { get; set; } = 640;
 
     public static string Path => System.IO.Path.Combine(AppContext.BaseDirectory, "settings.json");
-    static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+    // Relaxed escaping keeps "Ctrl+Alt+F" readable in the file rather than "Ctrl\u002BAlt\u002BF".
+    static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     public static Settings Load()
     {
@@ -29,5 +32,5 @@ public class Settings
 
     public void Save() => File.WriteAllText(Path, JsonSerializer.Serialize(this, Json));
 
-    public Tickfind.Sort SortOrder => Enum.TryParse<Tickfind.Sort>(Sort, true, out var s) ? s : Tickfind.Sort.Priority;
+    [JsonIgnore] public Tickfind.Sort SortOrder => Enum.TryParse<Tickfind.Sort>(Sort, true, out var s) ? s : Tickfind.Sort.Priority;
 }
