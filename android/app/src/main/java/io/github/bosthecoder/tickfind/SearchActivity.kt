@@ -22,6 +22,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONArray
@@ -45,6 +46,10 @@ class SearchActivity : Activity() {
     private var note: String? = null
     private var server: List<TickTick.Found>? = null
     private var firstOpen: (() -> Unit)? = null
+    private lateinit var viewScroll: HorizontalScrollView
+    private lateinit var viewBar: LinearLayout
+    private var view = 0                  // the view shown while the box is empty
+    private var startQuery: String? = null   // the "query" extra, filled in on the first open
 
     // The editor, and the task as TickTick had it when it loaded (to work out what changed)
     private lateinit var editPage: LinearLayout
@@ -73,7 +78,7 @@ class SearchActivity : Activity() {
         tt = TickTick(store)
         if (intent.getBooleanExtra("demo", false)) Repo.startDemo()
         build()
-        intent.getStringExtra("query")?.let { box.setText(it) }
+        startQuery = intent.getStringExtra("query")
         Repo.listen(onSync)
         summon()
         if (intent.getBooleanExtra("edit", false)) firstOpen?.invoke()
@@ -84,7 +89,7 @@ class SearchActivity : Activity() {
     /** The manifest keeps rotation, dark mode, font size and resizing from recreating this (which would lose the editor). */
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); size() }
 
-    /** Opened again (bubble, tile, icon): back to the box with the last search selected, unless there are unsaved edits. */
+    /** Opened again (bubble, tile, icon): back to an empty box on the first view, unless there are unsaved edits. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (editing != null && changes().length() == 0) showSearch()
@@ -93,7 +98,9 @@ class SearchActivity : Activity() {
 
     private fun summon() {
         if (editing == null) {
-            box.requestFocus(); box.selectAll()
+            view = 0
+            box.setText(startQuery ?: ""); box.setSelection(box.length()); startQuery = null
+            box.requestFocus()
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         }
         render()
@@ -127,6 +134,9 @@ class SearchActivity : Activity() {
         bar.addView(expandIcon)
         bar.addView(icon(R.drawable.ic_settings, 20) { startActivity(Intent(this, MainActivity::class.java)) })
         searchPage.addView(bar)
+        viewBar = LinearLayout(this)
+        viewScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(viewBar); setPadding(0, dp(2), 0, dp(6)) }
+        searchPage.addView(viewScroll, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll = MaxScroll(this).apply { addView(results); isVerticalScrollBarEnabled = false }
         searchPage.addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -169,6 +179,8 @@ class SearchActivity : Activity() {
         if (!::results.isInitialized) return
         size()
         results.removeAllViews()
+        viewBar.removeAllViews()
+        viewScroll.visibility = View.GONE
         firstOpen = null
         val index = Repo.index(this)
         val max = if (store.expanded) 30 else store.results
@@ -183,18 +195,31 @@ class SearchActivity : Activity() {
             }
             else -> {
                 val pool = store.excludeLists.let { ex -> if (ex.isEmpty()) index.tasks else index.tasks.filter { it.list !in ex } }
-                val hits = Search.run(pool, "${store.defaultFilter} $q".trim(), store.sort)
+                val views = store.views
+                val v = if (q.isEmpty() && views.isNotEmpty()) views[view.coerceIn(0, views.size - 1).also { view = it }] else null
+                if (v != null) renderViewBar(views)
+                val hits = Search.run(pool, v?.query ?: q, store.sort, filter = store.defaultFilter)
                 val terms = Search.parse(q).terms
                 for (h in hits.take(max)) taskRow(h.task, terms)
                 if (hits.isNotEmpty()) firstOpen = { openEditor(hits[0].task) }
                 if (hits.size > max) row(R.drawable.ic_expand, "${hits.size - max} more", if (store.expanded) "Add a word or a filter to narrow it down" else "Tap to show more") {
                     if (!store.expanded) { store.expanded = true; render() }
                 }
+                if (v != null && hits.isEmpty() && index.tasks.isNotEmpty()) row(R.drawable.ic_search, "Nothing in ${v.name}", "Type to search everything") {}
                 if (terms.isNotEmpty()) row(R.drawable.ic_search, "Search all of TickTick for “$q”", "TickTick's own search, completed tasks included") { serverSearch(q) }
                 if (index.tasks.isEmpty()) row(R.drawable.ic_search, if (Repo.syncing) "Reading your tasks from TickTick…" else "Nothing indexed yet", "Tap to sync now") { Repo.sync(this) }
             }
         }
         renderStatus()
+    }
+
+    private fun renderViewBar(views: List<Store.View>) {
+        viewScroll.visibility = View.VISIBLE
+        for ((i, v) in views.withIndex()) viewBar.addView(text(v.name.trim().ifEmpty { "(no name)" }, 13f).apply {
+            background = rounded(if (i == view) BLUE else 0x22FFFFFF, dp(14).toFloat())
+            setPadding(dp(12), dp(5), dp(12), dp(6))
+            setOnClickListener { view = i; if (box.length() > 0) box.setText("") else render() }   // clearing re-renders
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = dp(6) })
     }
 
     private fun renderStatus() {

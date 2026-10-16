@@ -182,6 +182,33 @@ class MainActivity : Activity() {
         })
         tip("Pick Tickfind under Default digital assistant app. Also: the Search TickTick tile in Quick Settings (swipe down twice, tap the pencil, drag it in), a Samsung side-key double press or Pixel Quick Tap set to open Tickfind, or the app icon.")
 
+        header("Views")
+        tip("Shown while the search box is empty; the first one when it opens. A view's search works like the box (syntax below), and a | b means either.")
+        val views = store.views
+        fun save(i: Int, change: (Store.View) -> Store.View) { store.views = store.views.toMutableList().also { it[i] = change(it[i]) } }
+        for ((i, v) in views.withIndex()) {
+            list.addView(LinearLayout(this).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(field(v.name, "Name") { s -> save(i) { it.copy(name = s) } }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+                // Move up, move down, remove
+                for ((label, move) in listOf("↑" to -1, "↓" to 1, "✕" to 0)) {
+                    val can = move == 0 || (i + move) in views.indices
+                    addView(text(label, 20f, if (can) DIM else 0x22F2F2F4).apply {
+                        gravity = Gravity.CENTER; background = ripple(dp(20))
+                        setOnClickListener {
+                            if (!can) return@setOnClickListener
+                            val l = store.views.toMutableList()
+                            if (move == 0) l.removeAt(i) else l[i] = l[i + move].also { l[i + move] = l[i] }
+                            store.views = l; build()
+                        }
+                    }, LinearLayout.LayoutParams(dp(44), dp(44)))
+                }
+            })
+            list.addView(field(v.query, "Search, e.g. due:today | #today") { s -> save(i) { it.copy(query = s) } },
+                LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6); bottomMargin = dp(16) })
+        }
+        list.addView(button("Add view", 0xFF1A1A1E.toInt()) { store.views = store.views + Store.View("New view", ""); build() })
+
         header("Search")
         choice("Sort by", Sort.entries, { when (it) { Sort.Best -> "Best match"; Sort.Modified -> "Changed"; Sort.Created -> "Added"; else -> it.name } }, store.sort) { store.sort = it }
         choice("Matches shown", listOf(4, 6, 8, 10), { "$it" }, store.results) { store.results = it }
@@ -196,7 +223,7 @@ class MainActivity : Activity() {
                 override fun afterTextChanged(s: android.text.Editable?) { store.defaultFilter = s.toString().trim() }
             })
         })
-        tip("#tag  ~list  -~list  !high !med !low !none  due:today due:week due:overdue has:due  is:note is:checklist  -word  \"exact words\"  sort:priority|best|due|modified|created")
+        tip("#tag  ~list  -~list  !high !med !low !none  due:today due:week due:overdue has:due (several: any)  a | b (either)  is:note is:checklist  -word  \"exact words\"  sort:priority|best|due|modified|created")
         toggle("Include archived lists", store.archived) { store.archived = it; Repo.sync(this) }
         val names = i.tasks.map { it.list }.toSortedSet() + store.excludeLists
         if (names.isNotEmpty()) {
@@ -214,6 +241,17 @@ class MainActivity : Activity() {
         updateBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         list.addView(updateBox)
         renderUpdate()
+    }
+
+    /** A one-line text field that saves as you type. */
+    private fun field(value: String, hint: String, save: (String) -> Unit) = EditText(this).apply {
+        setText(value); this.hint = hint; setTextColor(TEXT); setHintTextColor(FAINT); isSingleLine = true; textSize = 15f
+        background = rounded(FIELD, dp(10).toFloat()); setPadding(dp(12), dp(10), dp(12), dp(10))
+        addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { save(s.toString()) }
+        })
     }
 
     private fun header(s: String) = list.addView(text(s.uppercase(), 12f, 0x8CFFFFFF.toInt(), bold = true).apply {

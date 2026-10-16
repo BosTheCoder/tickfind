@@ -30,6 +30,7 @@ Tickfind is a search box that's always one action away. It keeps an index of eve
 ## Features
 
 - **One action away.** Windows: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> from anywhere (next to TickTick's <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> quick add, if you use that). Android: a floating bubble, a Quick Settings tile, the assistant gesture, or the app icon. See [Opening it fast](#opening-it-fast-on-android).
+- **Views when it opens.** Before you type, chips under the box show saved searches: *Today*, *Recently edited* and *Recently added* to start with. Add your own, rename them and put them in your order; the box opens on the first. See [Views](#views).
 - **Results as you type**, from every list: titles, notes, checklist items, tags and list names. Every word you type has to match, and case and accents don't matter.
 - **Sorted by priority by default**, then by how well it matches, then by what changed last. Switch to best match, due date, recently changed or recently added, as the default or for one search.
 - **Filters in the box:** `#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `"exact words"` and more ([full list](#search)). Set a default filter that's added to every search, and leave whole lists out.
@@ -75,6 +76,8 @@ Windows: ⚙ → **Check for updates** (it also tells you in the box when there'
 | Do this | To |
 | --- | --- |
 | Type | Search. Matches update with each letter |
+| Click / tap a chip, or <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> with the box empty | Switch view |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd> … <kbd>Ctrl</kbd>+<kbd>9</kbd> | Jump to that view |
 | <kbd>↑</kbd> <kbd>↓</kbd>, then <kbd>Enter</kbd> (or click / tap) | Open a match in the quick editor |
 | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> on Windows, long-press on Android | Open the match in TickTick |
 | <kbd>Ctrl</kbd>+<kbd>E</kbd> or ⤢ | Show more matches (and again for fewer) |
@@ -95,11 +98,26 @@ Windows: ⚙ → **Check for updates** (it also tells you in the box when there'
 | `#home` | Tagged `home` (or a tag starting with it) |
 | `~property` / `-~gcal` | In a list whose name contains this / not in one |
 | `!high` `!med` `!low` `!none` | That priority (combine them: `!high !med`) |
-| `due:today` `due:tomorrow` `due:week` `due:overdue` `has:due` `due:none` | By due date |
+| `due:today` `due:tomorrow` `due:week` `due:overdue` `has:due` `due:none` | By due date (several: any of them) |
+| `due:today \| #today` | Either side of the `\|` (the default filter applies to both) |
 | `is:note` `is:checklist` `is:task` | By kind |
 | `sort:priority` `sort:best` `sort:due` `sort:modified` `sort:created` | Sort this search differently |
 
-An empty box lists everything in your default sort, so `!high` on its own is "all my high-priority tasks", and `due:overdue` is what slipped.
+A search of only filters lists everything they let through, so `!high` on its own is "all my high-priority tasks", and `due:overdue` is what slipped.
+
+### Views
+
+While the box is empty, chips under it show your views: saved searches with a name. The box opens on the first one. Click or tap a chip to switch. Start typing and you're searching everything again; clear the box to get back to the view.
+
+The starting three:
+
+| View | Search |
+| --- | --- |
+| Today | `due:overdue due:today -~gcal \| #today`: due today or overdue (outside calendar-synced lists), or tagged `#today` |
+| Recently edited | `sort:modified` |
+| Recently added | `sort:created` |
+
+Change them on Windows under ⚙ → **Views…** (or `Views` in settings.json) and on Android in Settings → **Views**: rename, edit the search, ↑ ↓ to reorder, ✕ to remove, **Add view**. A view with an empty search lists everything in your default sort.
 
 ### Settings
 
@@ -116,6 +134,7 @@ On Windows, ⚙ has the common ones: sort order, how many matches, where **Open 
 | `OpenIn` | `App` | `App`: TickTick for Windows. `Web`: the task in your browser |
 | `RefreshMinutes` | `5` | Re-sync when the box opens if the index is older than this |
 | `Width` | `640` | Width of the box |
+| `Views` | Today, Recently edited, Recently added | `[{ "Name": "…", "Query": "…" }]`, in order. See [Views](#views) |
 
 Android has the same settings on its settings screen.
 

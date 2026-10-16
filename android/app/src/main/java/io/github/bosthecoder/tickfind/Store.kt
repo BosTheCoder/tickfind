@@ -50,6 +50,24 @@ class Store(ctx: Context) {
         get() = sp.getBoolean("bubbleRight", true)
         set(v) = sp.edit().putBoolean("bubbleRight", v).apply()
 
+    /** A saved search, shown as a chip while the box is empty. [query] is the search syntax; "a | b" is either. */
+    data class View(val name: String, val query: String)
+
+    /** In order: the first shows when the box opens. */
+    var views: List<View>
+        get() = sp.getString("views", null)?.let { s ->
+            runCatching { JSONArray(s).let { a -> (0 until a.length()).map { a.getJSONObject(it).run { View(optString("name"), optString("query")) } } } }.getOrNull()
+        } ?: DEFAULT_VIEWS
+        set(v) = sp.edit().putString("views", JSONArray(v.map { JSONObject().put("name", it.name).put("query", it.query) }).toString()).apply()
+
+    companion object {
+        val DEFAULT_VIEWS = listOf(
+            View("Today", "due:overdue due:today -~gcal | #today"),
+            View("Recently edited", "sort:modified"),
+            View("Recently added", "sort:created"),
+        )
+    }
+
     // ---------- The index ----------
 
     data class Index(val tasks: List<TTask>, val lists: Map<String, String>, val synced: Long)

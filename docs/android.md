@@ -28,6 +28,7 @@ Android 8 or later.
 | Do this | To |
 | --- | --- |
 | Type | Search. Every word has to match somewhere: title, notes, checklist, tags or list |
+| Tap a chip under the box | Switch view (the box opens on the first; see the [README](../README.md#views)) |
 | Tap a match | Open the quick editor: title, notes, priority, checklist items, Complete, Save |
 | Long-press a match, or **Open in TickTick** in the editor | Open it in TickTick |
 | **Copy link** in the editor | Copy the task's TickTick link |
@@ -44,6 +45,7 @@ The search syntax (`#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `s
 | --- | --- |
 | **Sort by** | Priority (default), Best match, Due, Changed, Added |
 | **Matches shown** | 4, 6 (default), 8, 10 in the compact box |
+| **Views** | The chips shown while the box is empty: rename, edit the search, ↑ ↓ to reorder, ✕ to remove, **Add view** |
 | **Default filter** | Added to every search, e.g. `-~gcal` |
 | **Include archived lists** | Off by default |
 | **Lists to leave out** | Tick any list to hide it from results |
