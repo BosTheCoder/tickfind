@@ -28,7 +28,8 @@ public class Query
 {
     public readonly List<string> Terms = new(), Not = new(), Tags = new(), Lists = new(), NotLists = new();
     public readonly HashSet<int> Priorities = new();
-    public string? Kind, Due;
+    public readonly HashSet<string> Due = new();   // any of these
+    public string? Kind;
     public Sort? Sort;
     public bool Empty => Terms.Count == 0;
 }
@@ -51,25 +52,42 @@ public static class Search
         ["low"] = 1, ["l"] = 1, ["1"] = 1, ["none"] = 0, ["n"] = 0, ["0"] = 0,
     };
 
+    /// Everything typed, every side of a "|" together (for highlighting the words).
     public static Query Parse(string text)
     {
         var q = new Query();
-        foreach (var raw in Tokens(text))
-        {
-            var w = Fold(raw);
-            if (w.Length > 1 && w[0] == '#') q.Tags.Add(w[1..]);
-            else if (w.Length > 1 && w[0] == '~') q.Lists.Add(w[1..]);
-            else if (w.StartsWith("list:") && w.Length > 5) q.Lists.Add(w[5..]);
-            else if (w.Length > 2 && w.StartsWith("-~")) q.NotLists.Add(w[2..]);
-            else if (w.Length > 1 && w[0] == '!' && PriorityWords.TryGetValue(w[1..], out var p)) q.Priorities.Add(p);
-            else if (w.StartsWith("is:") && w.Length > 3) q.Kind = w[3..];
-            else if (w.StartsWith("due:") && w.Length > 4) q.Due = w[4..];
-            else if (w == "has:due") q.Due = "any";
-            else if (w.StartsWith("sort:") && Enum.TryParse<Sort>(w[5..] == "best" || w[5..] == "relevance" ? "Best" : w[5..], true, out var s)) q.Sort = s;
-            else if (w.Length > 1 && w[0] == '-') q.Not.Add(w[1..]);
-            else if (w.Length > 0) q.Terms.Add(w);
-        }
+        foreach (var raw in Tokens(text)) if (raw != "|") Add(q, raw);
         return q;
+    }
+
+    /// One query per side of each "|", each with [filter]'s tokens first. Empty sides (a "|" typed but nothing after it) are dropped.
+    static List<Query> Alternatives(string text, string filter)
+    {
+        var sides = new List<List<string>> { new() };
+        foreach (var raw in Tokens(text)) if (raw == "|") sides.Add(new()); else sides[^1].Add(raw);
+        var f = Tokens(filter).ToList();
+        return sides.Where(s => s.Count > 0).DefaultIfEmpty(new()).Select(side =>
+        {
+            var q = new Query();
+            foreach (var raw in f.Concat(side)) Add(q, raw);
+            return q;
+        }).ToList();
+    }
+
+    static void Add(Query q, string raw)
+    {
+        var w = Fold(raw);
+        if (w.Length > 1 && w[0] == '#') q.Tags.Add(w[1..]);
+        else if (w.Length > 1 && w[0] == '~') q.Lists.Add(w[1..]);
+        else if (w.StartsWith("list:") && w.Length > 5) q.Lists.Add(w[5..]);
+        else if (w.Length > 2 && w.StartsWith("-~")) q.NotLists.Add(w[2..]);
+        else if (w.Length > 1 && w[0] == '!' && PriorityWords.TryGetValue(w[1..], out var p)) q.Priorities.Add(p);
+        else if (w.StartsWith("is:") && w.Length > 3) q.Kind = w[3..];
+        else if (w.StartsWith("due:") && w.Length > 4) q.Due.Add(w[4..]);
+        else if (w == "has:due") q.Due.Add("any");
+        else if (w.StartsWith("sort:") && Enum.TryParse<Sort>(w[5..] == "best" || w[5..] == "relevance" ? "Best" : w[5..], true, out var s)) q.Sort = s;
+        else if (w.Length > 1 && w[0] == '-') q.Not.Add(w[1..]);
+        else if (w.Length > 0) q.Terms.Add(w);
     }
 
     /// Splits on spaces, keeping "quoted phrases" together.
@@ -86,14 +104,20 @@ public static class Search
         if (b.Length > 0) yield return b.ToString();
     }
 
-    public static List<Hit> Run(IEnumerable<TTask> tasks, string text, Sort defaultSort, DateTime now)
+    /// [text] may hold "a | b" (either side); [filter] (the default filter) applies to every side.
+    public static List<Hit> Run(IEnumerable<TTask> tasks, string text, Sort defaultSort, DateTime now, string filter = "")
     {
-        var q = Parse(text);
-        var pool = tasks.Where(t => Passes(t, q, now)).ToList();
-        var hits = pool.Select(t => Score(t, q, fuzzy: false)).OfType<Hit>().ToList();
-        if (hits.Count == 0 && !q.Empty) hits = pool.Select(t => Score(t, q, fuzzy: true)).OfType<Hit>().ToList();
-        return Order(hits, q.Sort ?? defaultSort).ToList();
+        var alts = Alternatives(text, filter);
+        var list = tasks as IList<TTask> ?? tasks.ToList();
+        var hits = Match(list, alts, now, fuzzy: false);
+        if (hits.Count == 0 && alts.Any(q => !q.Empty)) hits = Match(list, alts, now, fuzzy: true);
+        return Order(hits, alts.Select(q => q.Sort).FirstOrDefault(s => s != null) ?? defaultSort).ToList();
     }
+
+    /// Each task that some side lets through, scored by its best side.
+    static List<Hit> Match(IList<TTask> tasks, List<Query> alts, DateTime now, bool fuzzy) =>
+        tasks.Select(t => alts.Where(q => Passes(t, q, now)).Select(q => Score(t, q, fuzzy)).OfType<Hit>().MaxBy(h => h.Score))
+            .OfType<Hit>().ToList();
 
     static bool Passes(TTask t, Query q, DateTime now)
     {
@@ -103,11 +127,11 @@ public static class Search
         if (q.Priorities.Count > 0 && !q.Priorities.Contains(t.Priority)) return false;
         if (q.Not.Any(w => n.Title.Contains(w) || n.Body.Contains(w) || n.Tags.Any(x => x.Contains(w)))) return false;
         if (q.Kind != null && !Fold(t.Kind).StartsWith(q.Kind == "task" ? "text" : q.Kind)) return false;
-        if (q.Due != null)
+        if (q.Due.Count > 0)
         {
             var today = now.Date;
             var due = t.Due?.ToLocalTime().Date;
-            var ok = q.Due switch
+            if (!q.Due.Any(d => d switch
             {
                 "any" => due != null,
                 "none" => due == null,
@@ -116,8 +140,7 @@ public static class Search
                 "overdue" => due < today,
                 "week" => due >= today && due < today.AddDays(7),
                 _ => true,
-            };
-            if (!ok) return false;
+            })) return false;
         }
         return true;
     }

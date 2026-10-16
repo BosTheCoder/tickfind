@@ -30,7 +30,8 @@ class Query {
     val terms = mutableListOf<String>(); val not = mutableListOf<String>(); val tags = mutableListOf<String>()
     val lists = mutableListOf<String>(); val notLists = mutableListOf<String>()
     val priorities = mutableSetOf<Int>()
-    var kind: String? = null; var due: String? = null; var sort: Sort? = null
+    val due = mutableSetOf<String>()   // any of these
+    var kind: String? = null; var sort: Sort? = null
 }
 
 /**
@@ -46,25 +47,36 @@ object Search {
         "low" to 1, "l" to 1, "1" to 1, "none" to 0, "n" to 0, "0" to 0,
     )
 
+    /** Everything typed, every side of a "|" together (for highlighting the words). */
     fun parse(text: String): Query {
         val q = Query()
-        for (raw in tokens(text)) {
-            val w = fold(raw)
-            when {
-                w.length > 1 && w[0] == '#' -> q.tags += w.substring(1)
-                w.length > 1 && w[0] == '~' -> q.lists += w.substring(1)
-                w.startsWith("list:") && w.length > 5 -> q.lists += w.substring(5)
-                w.length > 2 && w.startsWith("-~") -> q.notLists += w.substring(2)
-                w.length > 1 && w[0] == '!' && priorityWords.containsKey(w.substring(1)) -> q.priorities += priorityWords.getValue(w.substring(1))
-                w.startsWith("is:") && w.length > 3 -> q.kind = w.substring(3)
-                w.startsWith("due:") && w.length > 4 -> q.due = w.substring(4)
-                w == "has:due" -> q.due = "any"
-                w.startsWith("sort:") && sortOf(w.substring(5)) != null -> q.sort = sortOf(w.substring(5))
-                w.length > 1 && w[0] == '-' -> q.not += w.substring(1)
-                w.isNotEmpty() -> q.terms += w
-            }
-        }
+        for (raw in tokens(text)) if (raw != "|") add(q, raw)
         return q
+    }
+
+    /** One query per side of each "|", each with [filter]'s tokens first. Empty sides (a "|" typed but nothing after it) are dropped. */
+    private fun alternatives(text: String, filter: String): List<Query> {
+        val sides = mutableListOf(mutableListOf<String>())
+        for (raw in tokens(text)) if (raw == "|") sides += mutableListOf<String>() else sides.last() += raw
+        val f = tokens(filter)
+        return sides.filter { it.isNotEmpty() }.ifEmpty { listOf(emptyList<String>()) }.map { side -> Query().also { q -> (f + side).forEach { add(q, it) } } }
+    }
+
+    private fun add(q: Query, raw: String) {
+        val w = fold(raw)
+        when {
+            w.length > 1 && w[0] == '#' -> q.tags += w.substring(1)
+            w.length > 1 && w[0] == '~' -> q.lists += w.substring(1)
+            w.startsWith("list:") && w.length > 5 -> q.lists += w.substring(5)
+            w.length > 2 && w.startsWith("-~") -> q.notLists += w.substring(2)
+            w.length > 1 && w[0] == '!' && priorityWords.containsKey(w.substring(1)) -> q.priorities += priorityWords.getValue(w.substring(1))
+            w.startsWith("is:") && w.length > 3 -> q.kind = w.substring(3)
+            w.startsWith("due:") && w.length > 4 -> q.due += w.substring(4)
+            w == "has:due" -> q.due += "any"
+            w.startsWith("sort:") && sortOf(w.substring(5)) != null -> q.sort = sortOf(w.substring(5))
+            w.length > 1 && w[0] == '-' -> q.not += w.substring(1)
+            w.isNotEmpty() -> q.terms += w
+        }
     }
 
     fun sortOf(s: String): Sort? = if (s == "best" || s == "relevance") Sort.Best else Sort.entries.firstOrNull { it.name.equals(s, true) }
@@ -80,13 +92,17 @@ object Search {
         return out
     }
 
-    fun run(tasks: List<TTask>, text: String, defaultSort: Sort, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): List<Hit> {
-        val q = parse(text)
-        val pool = tasks.filter { passes(it, q, today, zone) }
-        var hits = pool.mapNotNull { score(it, q, fuzzy = false) }
-        if (hits.isEmpty() && q.terms.isNotEmpty()) hits = pool.mapNotNull { score(it, q, fuzzy = true) }
-        return order(hits, q.sort ?: defaultSort)
+    /** [text] may hold "a | b" (either side); [filter] (the default filter) applies to every side. */
+    fun run(tasks: List<TTask>, text: String, defaultSort: Sort, today: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault(), filter: String = ""): List<Hit> {
+        val alts = alternatives(text, filter)
+        var hits = match(tasks, alts, today, zone, fuzzy = false)
+        if (hits.isEmpty() && alts.any { it.terms.isNotEmpty() }) hits = match(tasks, alts, today, zone, fuzzy = true)
+        return order(hits, alts.firstNotNullOfOrNull { it.sort } ?: defaultSort)
     }
+
+    /** Each task that some side lets through, scored by its best side. */
+    private fun match(tasks: List<TTask>, alts: List<Query>, today: LocalDate, zone: ZoneId, fuzzy: Boolean) =
+        tasks.mapNotNull { t -> alts.filter { passes(t, it, today, zone) }.mapNotNull { score(t, it, fuzzy) }.maxByOrNull { it.score } }
 
     private fun passes(t: TTask, q: Query, today: LocalDate, zone: ZoneId): Boolean {
         val n = t.n
@@ -95,18 +111,19 @@ object Search {
         if (q.priorities.isNotEmpty() && t.priority !in q.priorities) return false
         if (q.not.any { w -> w in n.title || w in n.body || n.tags.any { w in it } }) return false
         q.kind?.let { if (!fold(t.kind).startsWith(if (it == "task") "text" else it)) return false }
-        q.due?.let { d ->
+        if (q.due.isNotEmpty()) {
             val due = t.due?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
-            val ok = when (d) {
-                "any" -> due != null
-                "none" -> due == null
-                "today" -> due == today
-                "tomorrow" -> due == today.plusDays(1)
-                "overdue" -> due != null && due < today
-                "week" -> due != null && due >= today && due < today.plusDays(7)
-                else -> true
-            }
-            if (!ok) return false
+            if (q.due.none { d ->
+                when (d) {
+                    "any" -> due != null
+                    "none" -> due == null
+                    "today" -> due == today
+                    "tomorrow" -> due == today.plusDays(1)
+                    "overdue" -> due != null && due < today
+                    "week" -> due != null && due >= today && due < today.plusDays(7)
+                    else -> true
+                }
+            }) return false
         }
         return true
     }

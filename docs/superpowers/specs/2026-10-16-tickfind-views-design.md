@@ -1,6 +1,6 @@
 # Tickfind: views
 
-**Date:** 2026-10-16 · **Status:** waiting for Kelvin's approval
+**Date:** 2026-10-16 · **Status:** approved 2026-10-16
 
 ## Why
 
@@ -21,9 +21,11 @@ Shipped as the defaults on first run, his to change:
 
 | Name | Search |
 |---|---|
-| Today | `due:overdue due:today` (TickTick's Today: due today plus anything overdue) |
+| Today | `due:overdue due:today -~gcal \| #today` (his TickTick filter ✨Today, below) |
 | Recently edited | `sort:modified` |
 | Recently added | `sort:created` |
+
+His ✨Today filter (read from TickTick's web API, 2026-10-16): due today or overdue and not in the 📅Calenders folder (Daily Schedule - GCAL, Events - GCAL), **or** tagged #today; sorted by priority. TickTick's MCP can't list filters, so the rules are copied, not synced.
 
 A view with an empty search is "everything by the default sort", which is what the box shows today. He can add it back as an "All" view.
 
@@ -34,9 +36,12 @@ One list editor, the same on both platforms: each row has a **name**, a **search
 - **Windows:** gear menu → *Views…* opens the editor in the Tickfind window (like the task editor; Esc goes back). The views also sit in `settings.json` as a `Views` list for hand edits.
 - **Android:** a *Views* section on the settings screen.
 
-## Search change
+## Search changes
 
-`due:` values combine with OR, so `due:overdue due:today` means either. Today the second one silently replaces the first. Every other filter is unchanged. Covered by a test on both platforms (`Search.cs`, `Search.kt`), kept in step.
+- `due:` values combine with OR, so `due:overdue due:today` means either. Before, the second silently replaced the first.
+- `|` on its own between words means **or**: `due:today -~gcal | #today` matches either side. The default filter applies to each side. A side left empty (`glance |` while typing) is ignored. This is what lets ✨Today, and his other OR-shaped filters (Downtime, Triage), be copied over.
+
+Every other filter is unchanged. Both covered by tests on both platforms (`Search.cs`, `Search.kt`), kept in step.
 
 ## Not now
 
@@ -48,7 +53,7 @@ One list editor, the same on both platforms: each row has a **name**, a **search
 
 1. Opening the box now always starts empty on the first view. Before, it reopened with the last search selected.
 2. Typing searches all tasks, not just the selected view.
-3. "Today" means due today or overdue, like TickTick's built-in Today.
+3. Added `|` (or) to the search so ✨Today copies over exactly. (He chose "custom filter" but gave no rules; read them from TickTick.)
 
 ## Release
 

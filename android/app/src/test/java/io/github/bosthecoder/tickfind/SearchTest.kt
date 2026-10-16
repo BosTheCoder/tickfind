@@ -20,8 +20,8 @@ class SearchTest {
             dueDays?.let { today.plusDays(it.toLong()).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli() },
             now - ageDays * day, now - ageDays * day, list)
 
-    private fun titles(tasks: List<TTask>, q: String, sort: Sort = Sort.Priority) =
-        Search.run(tasks, q, sort, today, ZoneOffset.UTC).map { it.task.title }
+    private fun titles(tasks: List<TTask>, q: String, sort: Sort = Sort.Priority, filter: String = "") =
+        Search.run(tasks, q, sort, today, ZoneOffset.UTC, filter).map { it.task.title }
 
     @Test fun priority_sort_puts_high_priority_first_and_best_match_puts_the_title_hit_first() {
         val tasks = listOf(t("Glance widget", 3), t("Calendar ideas", 5, content = "something like glance"), t("Unrelated", 5))
@@ -49,6 +49,23 @@ class SearchTest {
         assertEquals(listOf("Plumber quote"), titles(tasks, "due:overdue"))
         assertEquals(listOf("Plumber invoice"), titles(tasks, "due:today"))
         assertEquals(listOf("Plumber quote", "Plumber notes"), titles(tasks, "plumber -invoice"))
+    }
+
+    @Test fun due_values_combine_with_or() {
+        val tasks = listOf(t("Late", dueDays = -1), t("Now", dueDays = 0), t("Later", dueDays = 1))
+        assertEquals(listOf("Late", "Now"), titles(tasks, "due:overdue due:today", Sort.Due))
+    }
+
+    @Test fun bar_means_or_and_the_filter_applies_to_each_side() {
+        val tasks = listOf(
+            t("Overdue chore", 3, dueDays = -1),
+            t("Daily standup", 5, list = "Daily Schedule - GCAL", dueDays = 0),
+            t("Tagged today", 1, tags = listOf("today")),
+            t("Calendar tagged", 5, list = "Events - GCAL", tags = listOf("today")),
+            t("Someday", 0),
+        )
+        assertEquals(listOf("Overdue chore", "Tagged today"), titles(tasks, "due:overdue due:today -~gcal | #today", filter = "-~events"))
+        assertEquals(listOf("Someday"), titles(tasks, "someday |"))
     }
 
     @Test fun a_typo_still_finds_the_task_but_only_when_nothing_matches_exactly() {

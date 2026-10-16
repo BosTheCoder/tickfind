@@ -10,8 +10,8 @@ public class SearchTests
         new($"t{++n}", "p", title, content, kind, priority, tags ?? [], items ?? [], due,
             new DateTimeOffset(Now.AddDays(-ageDays)), new DateTimeOffset(Now.AddDays(-ageDays)), list);
 
-    static string[] Titles(IEnumerable<TTask> tasks, string q, Sort sort = Sort.Priority) =>
-        Search.Run(tasks, q, sort, Now).Select(h => h.Task.Title).ToArray();
+    static string[] Titles(IEnumerable<TTask> tasks, string q, Sort sort = Sort.Priority, string filter = "") =>
+        Search.Run(tasks, q, sort, Now, filter).Select(h => h.Task.Title).ToArray();
 
     [Fact]
     public void Priority_sort_puts_high_priority_first_and_best_match_puts_the_title_hit_first()
@@ -54,6 +54,30 @@ public class SearchTests
         Assert.Equal(new[] { "Plumber quote" }, Titles(tasks, "due:overdue"));
         Assert.Equal(new[] { "Plumber invoice" }, Titles(tasks, "due:today"));
         Assert.Equal(new[] { "Plumber quote", "Plumber notes" }, Titles(tasks, "plumber -invoice"));
+    }
+
+    [Fact]
+    public void Due_values_combine_with_or()
+    {
+        var tasks = new[] { T("Late", due: new DateTimeOffset(Now.Date.AddDays(-1))), T("Now", due: new DateTimeOffset(Now.Date)), T("Later", due: new DateTimeOffset(Now.Date.AddDays(1))) };
+
+        Assert.Equal(new[] { "Late", "Now" }, Titles(tasks, "due:overdue due:today", Sort.Due));
+    }
+
+    [Fact]
+    public void Bar_means_or_and_the_filter_applies_to_each_side()
+    {
+        var tasks = new[]
+        {
+            T("Overdue chore", 3, due: new DateTimeOffset(Now.Date.AddDays(-1))),
+            T("Daily standup", 5, list: "Daily Schedule - GCAL", due: new DateTimeOffset(Now.Date)),
+            T("Tagged today", 1, tags: ["today"]),
+            T("Calendar tagged", 5, list: "Events - GCAL", tags: ["today"]),
+            T("Someday", 0),
+        };
+
+        Assert.Equal(new[] { "Overdue chore", "Tagged today" }, Titles(tasks, "due:overdue due:today -~gcal | #today", filter: "-~events"));
+        Assert.Equal(new[] { "Someday" }, Titles(tasks, "someday |"));   // half-typed: the empty side adds nothing
     }
 
     [Fact]
