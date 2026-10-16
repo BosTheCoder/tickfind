@@ -622,8 +622,9 @@ public partial class MainWindow : Window
         RenderItems();
         Editable(true);
         EditStatus.Text = (int?)j["status"] is 0 or null ? "" : "Completed";
-        EditContent.Focus();
-        EditContent.CaretIndex = EditContent.Text.Length;
+        EditContent.Focus();   // caret and scroll at the top: the newest notes go first
+        EditContent.CaretIndex = 0;
+        EditScroll.ScrollToTop();
     }
 
     void Editable(bool on)

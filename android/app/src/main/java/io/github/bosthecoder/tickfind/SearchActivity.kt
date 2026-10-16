@@ -407,7 +407,7 @@ class SearchActivity : Activity() {
         completeButton.visibility = if (open) View.VISIBLE else View.GONE
         editStatus.text = if (open) "" else "Completed"
         renderPriority(); renderItems(); editable(true)
-        editContent.requestFocus(); editContent.setSelection(editContent.text.length)
+        editContent.requestFocus(); editContent.setSelection(0)   // at the top: the newest notes go first
     }
 
     private fun editable(on: Boolean) {
