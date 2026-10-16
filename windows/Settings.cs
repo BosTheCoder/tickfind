@@ -19,6 +19,20 @@ public class Settings
     public string OpenIn { get; set; } = "App";           // App: TickTick for Windows (its search, on the title) | Web: the exact task in your browser
     public int RefreshMinutes { get; set; } = 5;          // re-sync when opened if the index is older than this
     public double Width { get; set; } = 640;
+    public List<View> Views { get; set; } = View.Defaults();   // shown while the box is empty; the first one when it opens
+
+    public class View
+    {
+        public string Name { get; set; } = "";
+        public string Query { get; set; } = "";   // the search syntax; "a | b" is either
+
+        public static List<View> Defaults() =>
+        [
+            new() { Name = "Today", Query = "due:overdue due:today -~gcal | #today" },
+            new() { Name = "Recently edited", Query = "sort:modified" },
+            new() { Name = "Recently added", Query = "sort:created" },
+        ];
+    }
 
     public static string Path => System.IO.Path.Combine(AppContext.BaseDirectory, "settings.json");
     // Relaxed escaping keeps "Ctrl+Alt+F" readable in the file rather than "Ctrl\u002BAlt\u002BF".

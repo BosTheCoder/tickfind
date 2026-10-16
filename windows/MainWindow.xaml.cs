@@ -34,6 +34,8 @@ public partial class MainWindow : Window
     readonly List<Row> rows = new();
     int sel;
     List<(string Id, string Title, string ProjectId)>? server;   // TickTick's own search results, while shown
+    int view;              // the view shown while the box is empty
+    string? startQuery;    // --query, filled in on the first open
 
     // The task open in the editor, as TickTick had it when it loaded (for working out what changed)
     TTask? editing;
@@ -48,6 +50,8 @@ public partial class MainWindow : Window
     static readonly Brush SelBrush = new SolidColorBrush(Color.FromArgb(0x2C, 0xFF, 0xFF, 0xFF));
     static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x8F, 0xB0, 0xFF));
     static readonly Brush Late = new SolidColorBrush(Color.FromRgb(0xFF, 0x7A, 0x70));
+    static readonly Brush ChipOn = new SolidColorBrush(Color.FromRgb(0x47, 0x72, 0xFA));
+    static readonly Brush ChipOff = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
 
     public MainWindow(bool demo, bool pin = false, string? query = null)
     {
@@ -64,12 +68,14 @@ public partial class MainWindow : Window
         RegisterHotkey();
 
         Box.TextChanged += (_, _) => { server = null; tips = false; sel = 0; Hint.Visibility = Box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; Render(); };
-        if (query != null) Box.Text = query;
+        startQuery = query;
         PreviewKeyDown += OnKey;
         Deactivated += (_, _) => { if (!pin) Hide(); };
         GearButton.MouseLeftButtonUp += (_, _) => ShowMenu();
         ExpandButton.MouseLeftButtonUp += (_, _) => ToggleExpanded();
         BackButton.MouseLeftButtonUp += (_, _) => Back();
+        ViewsBack.MouseLeftButtonUp += (_, _) => ShowSearch();
+        AddViewButton.Click += (_, _) => { s.Views.Add(new() { Name = "New view" }); Persist(); RenderViews(focusLast: true); };
         Status.MouseLeftButtonUp += (_, _) => { if (update != null && note == null) _ = Install(); };
         OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // only hides: edits stay
         CopyButton.Click += (_, _) => CopyLink();
@@ -108,7 +114,7 @@ public partial class MainWindow : Window
         if (!Native.Hotkey(hwnd, s.Hotkey)) note = $"{s.Hotkey} is taken by another app. Pick another shortcut under ⚙.";
     }
 
-    /// Opens the box on the monitor the mouse is on, near the top, with the last search selected so typing replaces it.
+    /// Opens the box on the monitor the mouse is on, near the top: empty, on the first view.
     public void Summon()
     {
         if (File.Exists(Settings.Path) && File.GetLastWriteTimeUtc(Settings.Path) != settingsTime)
@@ -124,17 +130,26 @@ public partial class MainWindow : Window
         Top = wa.Top + wa.Height * 0.15;
         Scroll.MaxHeight = wa.Height * 0.6;
         EditScroll.MaxHeight = wa.Height * 0.45;
+        ViewsScroll.MaxHeight = wa.Height * 0.5;
         Show();
         Activate();
-        if (SearchPage.Visibility == Visibility.Visible) { Box.Focus(); Box.SelectAll(); }
+        if (SearchPage.Visibility == Visibility.Visible)
+        {
+            view = 0;
+            Box.Text = startQuery ?? "";
+            Box.CaretIndex = Box.Text.Length;
+            startQuery = null;
+            Box.Focus();
+        }
         Render();
         if (!demo && tt.SignedIn && DateTime.Now - synced > TimeSpan.FromMinutes(s.RefreshMinutes)) _ = Sync();
     }
 
     /// Renders the box over a dark backdrop (standing in for the acrylic glass) at 2x, for docs and checks.
-    public void Snapshot(string path, bool edit)
+    public void Snapshot(string path, bool edit, bool views)
     {
         if (edit && rows.Count > 0) rows[0].Open();
+        if (views) ShowViews();
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
         {
             UpdateLayout();
@@ -234,6 +249,9 @@ public partial class MainWindow : Window
     {
         Results.Children.Clear();
         rows.Clear();
+        ViewBar.Children.Clear();
+        ViewBar.Visibility = Visibility.Collapsed;
+        Keys.Text = "↵ open · Ctrl+↵ TickTick · Ctrl+E bigger";
         ExpandButton.Text = s.Expanded ? "" : "";
         var max = s.Expanded ? s.ExpandedResults : s.Results;
         if (!demo && !tt.SignedIn)
@@ -251,13 +269,17 @@ public partial class MainWindow : Window
         else
         {
             var q = Box.Text.Trim();
+            var v = q.Length == 0 && s.Views.Count > 0 ? s.Views[view = Math.Clamp(view, 0, s.Views.Count - 1)] : null;
+            if (v != null) RenderViewBar();
             var pool = s.ExcludeLists.Count == 0 ? tasks : tasks.Where(t => !s.ExcludeLists.Contains(t.List)).ToList();
-            var hits = Search.Run(pool, (s.DefaultFilter + " " + q).Trim(), s.SortOrder, DateTime.Now);
+            var hits = Search.Run(pool, v?.Query ?? q, s.SortOrder, DateTime.Now, s.DefaultFilter);
             var terms = Search.Parse(q).Terms;
             foreach (var h in hits.Take(max))
                 AddRow(TaskRow(h.Task, terms), () => OpenEditor(h.Task), () => OpenInTickTick(h.Task.ProjectId, h.Task.Id, h.Task.Title));
             if (hits.Count > max)
                 AddRow(Simple("", $"{hits.Count - max} more", s.Expanded ? "Add a word or a filter to narrow it down" : "Ctrl+E shows more"), () => { if (!s.Expanded) ToggleExpanded(); });
+            if (v != null && hits.Count == 0 && tasks.Count > 0)
+                AddRow(Simple("\uE946", $"Nothing in {v.Name}", "Type to search everything"), () => { });
             if (terms.Count > 0)
                 AddRow(Simple("", $"Search all of TickTick for “{q}”", "TickTick's own search, completed tasks included"), () => _ = RunServerSearch(q));
             if (tasks.Count == 0)
@@ -266,6 +288,32 @@ public partial class MainWindow : Window
         sel = Math.Clamp(sel, 0, Math.Max(0, rows.Count - 1));
         Highlight();
         RenderStatus();
+    }
+
+    void RenderViewBar()
+    {
+        ViewBar.Visibility = Visibility.Visible;
+        if (s.Views.Count > 1) Keys.Text = "Tab next view · ↵ open · Ctrl+↵ TickTick";
+        for (var i = 0; i < s.Views.Count; i++)
+        {
+            var at = i;
+            var chip = new Border
+            {
+                Child = new TextBlock { Text = s.Views[i].Name.Trim() is { Length: > 0 } n ? n : "(no name)", FontSize = 12 },
+                Padding = new Thickness(10, 3, 10, 4), Margin = new Thickness(0, 0, 6, 0), CornerRadius = new CornerRadius(11),
+                Background = i == view ? ChipOn : ChipOff, Cursor = Cursors.Hand,
+                ToolTip = s.Views[i].Query + (i < 9 ? $"   (Ctrl+{i + 1})" : ""),
+            };
+            chip.MouseLeftButtonUp += (_, _) => SelectView(at);
+            ViewBar.Children.Add(chip);
+        }
+    }
+
+    void SelectView(int i)
+    {
+        view = i;
+        sel = 0;
+        if (Box.Text.Length > 0) Box.Clear(); else Render();   // clearing re-renders
     }
 
     void RenderStatus()
@@ -285,7 +333,8 @@ public partial class MainWindow : Window
         ("#home", "Tagged home (or a tag starting with it)"),
         ("~property   -~gcal", "In a list whose name contains this, or not"),
         ("!high  !med  !low  !none", "Priority"),
-        ("due:today  due:tomorrow  due:week  due:overdue  has:due  due:none", "Due date"),
+        ("due:today  due:tomorrow  due:week  due:overdue  has:due  due:none", "Due date (several: any of them)"),
+        ("due:today | #today", "Either side of the |"),
         ("is:note  is:checklist  is:task", "Kind"),
         ("sort:priority  sort:best  sort:due  sort:modified  sort:created", "This search only; set the default under ⚙"),
     ];
@@ -425,6 +474,11 @@ public partial class MainWindow : Window
     void OnKey(object? sender, KeyEventArgs e)
     {
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        if (ViewsPage.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape) { ShowSearch(); e.Handled = true; }
+            return;
+        }
         if (EditPage.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) Back();
@@ -442,6 +496,9 @@ public partial class MainWindow : Window
             case Key.Down when rows.Count > 0: sel = (sel + 1) % rows.Count; Highlight(); break;
             case Key.Up when rows.Count > 0: sel = (sel - 1 + rows.Count) % rows.Count; Highlight(); break;
             case Key.Enter when rows.Count > 0: (ctrl ? rows[sel].Alt ?? rows[sel].Open : rows[sel].Open)(); break;
+            case Key.Tab when ViewBar.Visibility == Visibility.Visible && s.Views.Count > 1:
+                SelectView((view + (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? s.Views.Count - 1 : 1)) % s.Views.Count); break;
+            case >= Key.D1 and <= Key.D9 when ctrl && e.Key - Key.D1 < s.Views.Count: SelectView(e.Key - Key.D1); break;
             case Key.E when ctrl: ToggleExpanded(); break;
             case Key.R when ctrl: _ = Sync(); break;
             default: return;
@@ -717,9 +774,63 @@ public partial class MainWindow : Window
         loaded = null;
         Banner.Visibility = Visibility.Collapsed;
         EditPage.Visibility = Visibility.Collapsed;
+        ViewsPage.Visibility = Visibility.Collapsed;
         SearchPage.Visibility = Visibility.Visible;
         Box.Focus();
         Render();
+    }
+
+    // ---------- Views page ----------
+
+    void ShowViews()
+    {
+        SearchPage.Visibility = Visibility.Collapsed;
+        ViewsPage.Visibility = Visibility.Visible;
+        RenderViews(focusLast: false);
+    }
+
+    /// A row per view: name, search, then up, down and remove. Every change is saved straight away.
+    void RenderViews(bool focusLast)
+    {
+        ViewRows.Children.Clear();
+        var field = (Style)FindResource("Field");
+        TextBox? last = null;
+        for (var i = 0; i < s.Views.Count; i++)
+        {
+            var (v, at) = (s.Views[i], i);
+            var name = new TextBox { Style = field, Text = v.Name, Width = 150, Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(0, 0, 6, 0) };
+            name.TextChanged += (_, _) => { v.Name = name.Text; Persist(); };
+            var query = new TextBox { Style = field, Text = v.Query, FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12, Padding = new Thickness(8, 3, 8, 3), VerticalContentAlignment = VerticalAlignment.Center };
+            query.TextChanged += (_, _) => { v.Query = query.Text; Persist(); };
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            DockPanel.SetDock(name, Dock.Left);
+            row.Children.Add(name);
+            // Docked right in reverse, so they read up, down, remove
+            foreach (var (icon, tip, move) in new (string, string, int)[] { ("\uE711", "Remove", 0), ("\uE74B", "Move down", 1), ("\uE74A", "Move up", -1) })
+            {
+                var can = move == 0 || (at + move >= 0 && at + move < s.Views.Count);
+                var b = new TextBlock
+                {
+                    Text = icon, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 13, ToolTip = tip,
+                    Cursor = can ? Cursors.Hand : Cursors.Arrow, Opacity = can ? 0.7 : 0.2,
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 2, 0),
+                };
+                b.MouseLeftButtonUp += (_, _) =>
+                {
+                    if (!can) return;
+                    if (move == 0) s.Views.RemoveAt(at);
+                    else (s.Views[at], s.Views[at + move]) = (s.Views[at + move], s.Views[at]);
+                    Persist();
+                    RenderViews(focusLast: false);
+                };
+                DockPanel.SetDock(b, Dock.Right);
+                row.Children.Add(b);
+            }
+            row.Children.Add(query);
+            ViewRows.Children.Add(row);
+            last = name;
+        }
+        if (focusLast && last != null) { last.Focus(); last.SelectAll(); }
     }
 
     // ---------- Settings menu ----------
@@ -727,6 +838,7 @@ public partial class MainWindow : Window
     void ShowMenu()
     {
         var m = new ContextMenu { PlacementTarget = GearButton };
+        m.Items.Add(Item("Views…", ShowViews));
         m.Items.Add(Choice("Sort by", new[] { ("Priority", "Priority"), ("Best match", "Best"), ("Due date", "Due"), ("Recently changed", "Modified"), ("Recently added", "Created") }, s.Sort, v => s.Sort = v));
         m.Items.Add(Choice("Matches shown", new[] { 4, 6, 8, 10 }.Select(n => (n.ToString(), n)), s.Results, v => s.Results = v));
         m.Items.Add(Choice("Open in TickTick goes to", new[] { ("TickTick for Windows, searching for the title", "App"), ("The exact task, in your browser", "Web") }, s.OpenIn, v => s.OpenIn = v));

@@ -65,12 +65,31 @@
                         <TextBlock x:Name="Hint" Text="Search TickTick" FontSize="19" Opacity="0.35" IsHitTestVisible="False" Margin="2,4,0,0"/>
                     </Grid>
                 </DockPanel>
+                <!-- Views: chips for the saved searches, while the box is empty -->
+                <WrapPanel x:Name="ViewBar" DockPanel.Dock="Top" Margin="0,10,0,0" Visibility="Collapsed"/>
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" TextElement.FontSize="11.5">
                     <TextBlock x:Name="Keys" DockPanel.Dock="Right" Opacity="0.4" Text="↵ open · Ctrl+↵ TickTick · Ctrl+E bigger"/>
                     <TextBlock x:Name="Status" Opacity="0.55" TextTrimming="CharacterEllipsis" Cursor="Arrow"/>
                 </DockPanel>
                 <ScrollViewer x:Name="Scroll" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0" Focusable="False">
                     <StackPanel x:Name="Results"/>
+                </ScrollViewer>
+            </DockPanel>
+
+            <!-- Views: name and search for each chip, in order; saved as you type -->
+            <DockPanel x:Name="ViewsPage" Visibility="Collapsed">
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock x:Name="ViewsBack" DockPanel.Dock="Left" Text="&#xE72B;" FontFamily="{StaticResource Icons}" FontSize="15"
+                               Opacity="0.7" Cursor="Hand" VerticalAlignment="Center" Margin="0,0,12,0" ToolTip="Back (Esc)"/>
+                    <TextBlock Text="Views" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <Button x:Name="AddViewButton" DockPanel.Dock="Left" Content="Add view"/>
+                    <TextBlock Opacity="0.5" FontSize="11.5" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"
+                               Text="The first one shows when the box opens. A view's search works like the box (⚙ → Search tips), and a&#160;|&#160;b means either."/>
+                </DockPanel>
+                <ScrollViewer x:Name="ViewsScroll" VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="ViewRows"/>
                 </ScrollViewer>
             </DockPanel>
 

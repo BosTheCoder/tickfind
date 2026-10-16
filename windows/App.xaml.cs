@@ -33,9 +33,9 @@ public partial class App : Application
         var w = new MainWindow(demo, e.Args.Contains("--pin"), qi >= 0 && qi + 1 < e.Args.Length ? e.Args[qi + 1] : null);
         // At login (--hidden) it waits for the shortcut; any other start shows the box straight away.
         if (!e.Args.Contains("--hidden")) w.Summon();
-        // --snapshot out.png [--edit]: render the box (or the first match's editor) to a PNG and quit. Works with the screen locked.
+        // --snapshot out.png [--edit | --views]: render the box (or the first match's editor, or the views page) to a PNG and quit. Works with the screen locked.
         var si = Array.IndexOf(e.Args, "--snapshot");
-        if (si >= 0 && si + 1 < e.Args.Length) w.Snapshot(e.Args[si + 1], e.Args.Contains("--edit"));
+        if (si >= 0 && si + 1 < e.Args.Length) w.Snapshot(e.Args[si + 1], e.Args.Contains("--edit"), e.Args.Contains("--views"));
         new Thread(() => { while (reveal.WaitOne()) w.Dispatcher.Invoke(w.Summon); }) { IsBackground = true }.Start();
     }
 }
