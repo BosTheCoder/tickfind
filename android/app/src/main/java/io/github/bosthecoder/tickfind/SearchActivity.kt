@@ -1,6 +1,8 @@
 package io.github.bosthecoder.tickfind
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Paint
@@ -285,6 +287,15 @@ class SearchActivity : Activity() {
         top.addView(icon(R.drawable.ic_back, 20) { back() })
         editList = text("", 13f, DIM).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         top.addView(editList, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        lateinit var copy: Button
+        copy = button("Copy link", 0x22FFFFFF) {
+            editing?.let {
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("TickTick link", TickTick.webUrl(it.projectId, it.id)))
+                copy.text = "Copied"
+                copy.postDelayed({ copy.text = "Copy link" }, 1500)
+            }
+        }
+        top.addView(copy, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = dp(8) })
         top.addView(button("Open in TickTick", 0x22FFFFFF) {
             // With unsaved edits, step aside rather than close, so they're still here when you come back.
             editing?.let { TickTick.open(this, it.projectId, it.id, store.web); if (changes().length() > 0) moveTaskToBack(true) else finish() }

@@ -30,6 +30,7 @@ Android 8 or later.
 | Type | Search. Every word has to match somewhere: title, notes, checklist, tags or list |
 | Tap a match | Open the quick editor: title, notes, priority, checklist items, Complete, Save |
 | Long-press a match, or **Open in TickTick** in the editor | Open it in TickTick |
+| **Copy link** in the editor | Copy the task's TickTick link |
 | The keyboard's go key | Open the top match |
 | ⤢ | Show more matches, with the box filling the screen (tap again for fewer) |
 | **Search all of TickTick for "…"** (last row) | TickTick's own search, completed tasks included |

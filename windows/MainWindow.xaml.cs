@@ -72,6 +72,7 @@ public partial class MainWindow : Window
         BackButton.MouseLeftButtonUp += (_, _) => Back();
         Status.MouseLeftButtonUp += (_, _) => { if (update != null && note == null) _ = Install(); };
         OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // only hides: edits stay
+        CopyButton.Click += (_, _) => CopyLink();
         SaveButton.Click += async (_, _) => await Save(force: false, complete: false);
         CompleteButton.Click += async (_, _) => await Save(force: false, complete: true);
         BannerA.Click += (_, _) => { Banner.Visibility = Visibility.Collapsed; bannerA?.Invoke(); };
@@ -429,6 +430,7 @@ public partial class MainWindow : Window
             if (e.Key == Key.Escape) Back();
             else if (ctrl && e.Key == Key.S) _ = Save(force: false, complete: false);
             else if (ctrl && e.Key == Key.Enter && editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text);
+            else if (ctrl && e.Key == Key.L) CopyLink();
             else return;
             e.Handled = true;
             return;
@@ -472,6 +474,17 @@ public partial class MainWindow : Window
             Hide();
         }
         catch (Exception e) { note = "Couldn't open TickTick: " + e.Message; RenderStatus(); }
+    }
+
+    /// The exact task's web link, to paste into a note or chat.
+    async void CopyLink()
+    {
+        if (editing == null) return;
+        try { Clipboard.SetText(TickTick.WebUrl(editing.ProjectId, editing.Id)); }
+        catch (Exception e) { EditStatus.Text = "Couldn't copy the link: " + e.Message; return; }
+        CopyButton.Content = "Copied";
+        await Task.Delay(1500);
+        CopyButton.Content = "Copy link";
     }
 
     // ---------- Quick edit ----------

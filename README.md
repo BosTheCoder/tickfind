@@ -79,6 +79,7 @@ Windows: ⚙ → **Check for updates** (it also tells you in the box when there'
 | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> on Windows, long-press on Android | Open the match in TickTick |
 | <kbd>Ctrl</kbd>+<kbd>E</kbd> or ⤢ | Show more matches (and again for fewer) |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> / **Save** in the editor | Save your changes to TickTick |
+| <kbd>Ctrl</kbd>+<kbd>L</kbd> / **Copy link** in the editor | Copy the task's TickTick link |
 | **Complete** in the editor | Mark it done (anything you typed is saved first) |
 | <kbd>Esc</kbd> / Back | From the editor: back to the matches. From the matches: close |
 | Click away / tap outside | Close. Unsaved edits stay put until you come back |
