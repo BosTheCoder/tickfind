@@ -1,6 +1,6 @@
 # Tickfind: views
 
-**Date:** 2026-10-16 · **Status:** approved 2026-10-16
+**Date:** 2026-10-16 · **Status:** approved 2026-10-16, shipped in v1.1.0
 
 ## Why
 
