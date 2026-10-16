@@ -20,7 +20,8 @@
         <!-- The search box. The launcher icon, the bubble, the tile and the assistant gesture all open this. -->
         <activity android:name=".SearchActivity" android:exported="true" android:theme="@style/Floating"
             android:launchMode="singleTask" android:taskAffinity="io.github.bosthecoder.tickfind.search"
-            android:excludeFromRecents="true" android:windowSoftInputMode="stateAlwaysVisible|adjustResize">
+            android:excludeFromRecents="true" android:windowSoftInputMode="stateAlwaysVisible|adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

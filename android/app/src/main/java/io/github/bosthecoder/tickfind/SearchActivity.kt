@@ -60,6 +60,8 @@ class SearchActivity : Activity() {
     private var loaded: JSONObject? = null
     private var editPriority = 0
     private var editItems = mutableListOf<JSONObject>()
+    /** A save or completion is on its way to TickTick: Back and a second Save wait, so it only ever acts on the task it started with. */
+    private var busy = false
 
     private val onSync: () -> Unit = { if (editing == null) render() else renderStatus() }
 
@@ -76,6 +78,9 @@ class SearchActivity : Activity() {
     }
 
     override fun onDestroy() { Repo.unlisten(onSync); super.onDestroy() }
+
+    /** The manifest keeps rotation, dark mode, font size and resizing from recreating this (which would lose the editor). */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); size() }
 
     /** Opened again (bubble, tile, icon): back to the box with the last search selected, unless there are unsaved edits. */
     override fun onNewIntent(intent: Intent) {
@@ -258,12 +263,13 @@ class SearchActivity : Activity() {
 
     /** A task from TickTick's own search isn't in the index (it may be completed), so load it first. */
     private fun openFound(f: TickTick.Found) {
+        if (editing != null || note == "Opening…") return   // a second tap while the first is loading
         note = "Opening…"; renderStatus()
         thread {
             val r = runCatching { tt.get(f.id) }
             runOnUiThread {
                 note = null
-                r.onSuccess { j -> openEditor(TickTick.parse(j, Repo.index(this).lists[f.projectId] ?: ""), j) }
+                r.onSuccess { j -> if (editing == null && server != null) openEditor(TickTick.parse(j, Repo.index(this).lists[f.projectId] ?: ""), j) else renderStatus() }
                     .onFailure { note = "Couldn't open it: ${it.message}"; renderStatus() }
             }
         }
@@ -280,7 +286,8 @@ class SearchActivity : Activity() {
         editList = text("", 13f, DIM).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         top.addView(editList, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         top.addView(button("Open in TickTick", 0x22FFFFFF) {
-            editing?.let { TickTick.open(this, it.projectId, it.id, store.web); finish() }
+            // With unsaved edits, step aside rather than close, so they're still here when you come back.
+            editing?.let { TickTick.open(this, it.projectId, it.id, store.web); if (changes().length() > 0) moveTaskToBack(true) else finish() }
         })
         editPage.addView(top)
         editTitle = field().apply { textSize = 17f; typeface = android.graphics.Typeface.DEFAULT_BOLD; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE }
@@ -310,11 +317,11 @@ class SearchActivity : Activity() {
         }
         editPage.addView(banner, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
         val bottom = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        completeButton = button("✓  Complete", 0x22FFFFFF) { complete() }
+        completeButton = button("✓  Complete", 0x22FFFFFF) { save(force = false, complete = true) }
         bottom.addView(completeButton)
         editStatus = text("", 12f, DIM).apply { maxLines = 2; setPadding(dp(10), 0, dp(10), 0) }
         bottom.addView(editStatus, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        saveButton = button("Save", BLUE) { save(force = false) }
+        saveButton = button("Save", BLUE) { save(force = false, complete = false) }
         bottom.addView(saveButton)
         editPage.addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(10) })
     }
@@ -340,7 +347,8 @@ class SearchActivity : Activity() {
                 thread {
                     val r = runCatching { tt.get(t.id) }
                     runOnUiThread {
-                        r.onSuccess { fill(it) }.onFailure {
+                        // A slower, earlier load of the same task mustn't reset what you've typed since.
+                        r.onSuccess { if (editing === t && loaded == null) fill(it) }.onFailure {
                             editStatus.text = if (it is NeedsSignIn) "TickTick signed you out: sign in again in Settings" else "Couldn't load it: ${it.message}"
                         }
                     }
@@ -398,7 +406,7 @@ class SearchActivity : Activity() {
         }
     }
 
-    /** Only the fields you changed, in the shape update_task wants. */
+    /** Only the fields you changed, in the shape update_task wants. An item typed but not yet added counts too. */
     private fun changes(): JSONObject {
         val c = JSONObject()
         val l = loaded ?: return c
@@ -408,56 +416,58 @@ class SearchActivity : Activity() {
         if (editContent.text.toString() != l.str(field)) c.put(field, editContent.text.toString())
         if (editPriority != l.optInt("priority")) c.put("priority", editPriority)
         if (checklist) {
-            val items = JSONArray(editItems.mapIndexed { i, x -> JSONObject(x.toString()).also { if (!it.has("sortOrder")) it.put("sortOrder", i) } })
+            val pending = addItem.text.toString().trim().takeIf { it.isNotEmpty() }?.let { listOf(JSONObject().put("title", it).put("status", 0)) } ?: listOf()
+            val items = JSONArray((editItems + pending).mapIndexed { i, x -> JSONObject(x.toString()).also { if (!it.has("sortOrder")) it.put("sortOrder", i) } })
             if (items.toString() != (l.optJSONArray("items") ?: JSONArray()).toString()) c.put("items", items)
         }
         return c
     }
 
-    private fun save(force: Boolean) {
+    /**
+     * Saves what you changed and, with [complete], then marks the task done. Unless [force], it first checks the task
+     * hasn't changed in TickTick since it loaded (TickTick accepts a stale etag) and asks if it has.
+     */
+    private fun save(force: Boolean, complete: Boolean) {
+        if (busy) return
         val t = editing ?: return
         val l = loaded ?: return
         val c = changes()
-        if (c.length() == 0) { showSearch(); return }
-        if (Repo.demo) { ask("This is the demo, so nothing was saved.", "OK", ::showSearch, "Keep editing") {}; return }
-        editable(false); editStatus.text = "Saving…"; banner.visibility = View.GONE
+        if (c.length() == 0 && !complete) { showSearch(); return }
+        if (Repo.demo) {
+            if (complete) { Repo.remove(this, t.id); showSearch() } else ask("This is the demo, so nothing was saved.", "OK", ::showSearch, "Keep editing") {}
+            return
+        }
+        val projectId = l.getString("projectId")
+        busy = true; editable(false); banner.visibility = View.GONE
+        editStatus.text = if (complete) "Completing…" else "Saving…"
         thread {
+            var saved: JSONObject? = null
             val r = runCatching {
-                // TickTick accepts a stale etag, so check for a change made elsewhere ourselves before overwriting it.
-                if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return@runCatching now }
-                Repo.put(this, TickTick.parse(tt.update(t.id, l.getString("projectId"), c), t.list))
+                if (c.length() > 0) {
+                    if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return@runCatching now }
+                    saved = tt.update(t.id, projectId, c)
+                    Repo.put(this, TickTick.parse(saved!!, t.list))
+                }
+                if (complete) { tt.complete(projectId, t.id); Repo.remove(this, t.id) }
                 null
             }
             runOnUiThread {
+                busy = false
+                saved?.let { if (editing === t) loaded = it }   // if completing fails next, a retry compares against this version
                 r.onSuccess { theirs ->
                     if (theirs != null) {
                         editable(true); editStatus.text = ""
                         ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
-                            "Save mine", { save(force = true) }, "Show theirs") { fill(theirs) }
-                    } else { note = "Saved"; showSearch() }
+                            "Save mine", { save(force = true, complete) }, "Show theirs") { fill(theirs) }
+                    } else { note = if (complete) "Completed “${t.title}”" else "Saved"; showSearch() }
                 }.onFailure {
                     editable(true)
-                    editStatus.text = if (it is NeedsSignIn) "TickTick signed you out. Copy your text, then sign in again in Settings." else "Didn't save: ${it.message}"
+                    editStatus.text = when {
+                        it is NeedsSignIn -> "TickTick signed you out. Copy your text, then sign in again in Settings."
+                        complete -> "Didn't complete: ${it.message}"
+                        else -> "Didn't save: ${it.message}"
+                    }
                 }
-            }
-        }
-    }
-
-    private fun complete() {
-        val t = editing ?: return
-        val l = loaded ?: return
-        if (Repo.demo) { Repo.remove(this, t.id); showSearch(); return }
-        val c = changes()
-        editable(false); editStatus.text = "Completing…"
-        thread {
-            val r = runCatching {
-                if (c.length() > 0) tt.update(t.id, l.getString("projectId"), c)   // keep what you typed
-                tt.complete(l.getString("projectId"), t.id)
-                Repo.remove(this, t.id)
-            }
-            runOnUiThread {
-                r.onSuccess { note = "Completed “${t.title}”"; showSearch() }
-                    .onFailure { editable(true); editStatus.text = "Didn't complete: ${it.message}" }
             }
         }
     }
@@ -473,7 +483,8 @@ class SearchActivity : Activity() {
     }
 
     private fun back() {
-        if (changes().length() > 0) ask("You have changes that aren't saved.", "Save", { save(force = false) }, "Discard", ::showSearch)
+        if (busy) return
+        if (changes().length() > 0) ask("You have changes that aren't saved.", "Save", { save(force = false, complete = false) }, "Discard", ::showSearch)
         else showSearch()
     }
 

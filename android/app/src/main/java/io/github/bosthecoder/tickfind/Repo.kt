@@ -3,6 +3,7 @@ package io.github.bosthecoder.tickfind
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /** The task index in memory, shared by the search box and settings, and the one background sync. */
@@ -14,6 +15,9 @@ object Repo {
     var demo = false
     private val main = Handler(Looper.getMainLooper())
     private val listeners = mutableSetOf<() -> Unit>()
+    /** Every change to the index and every write of tasks.json goes through this lock and this one writer thread. */
+    private val lock = Any()
+    private val writer = Executors.newSingleThreadExecutor()
 
     fun index(ctx: Context): Store.Index = index ?: (if (demo) Store.Index(Demo.tasks(), mapOf(), System.currentTimeMillis())
         else Store(ctx).load()).also { i ->
@@ -36,10 +40,14 @@ object Repo {
         thread {
             try {
                 val r = TickTick(store).sync(store.archived)
-                val i = Store.Index(r.tasks, r.lists, System.currentTimeMillis())
-                store.save(i)
-                i.tasks.forEach { it.n }
-                index = i
+                r.tasks.forEach { it.n }
+                synchronized(lock) {
+                    // A list that couldn't be read keeps its old tasks, and the index stays due for a sync, so nothing vanishes from search.
+                    val old = index(ctx)
+                    index = if (r.failed.isEmpty()) Store.Index(r.tasks, r.lists, System.currentTimeMillis())
+                        else Store.Index(r.tasks + old.tasks.filter { it.list in r.failed }, r.lists, old.synced)
+                }
+                persist(ctx)
                 error = if (r.failed.isEmpty()) null else "Couldn't read ${r.failed.joinToString()}"
             } catch (e: NeedsSignIn) {
                 error = null
@@ -59,10 +67,13 @@ object Repo {
     fun remove(ctx: Context, id: String) = edit(ctx) { tasks -> tasks.filter { it.id != id } }
 
     private fun edit(ctx: Context, f: (List<TTask>) -> List<TTask>) {
-        val i = index(ctx)
-        val next = i.copy(tasks = f(i.tasks))
-        index = next
-        if (!demo) thread { Store(ctx).save(next) }
+        synchronized(lock) { val i = index(ctx); index = i.copy(tasks = f(i.tasks)) }
+        persist(ctx)
+    }
+
+    /** Writes whatever the index is by the time the writer gets to it, one write at a time. */
+    private fun persist(ctx: Context) {
+        if (!demo) writer.execute { synchronized(lock) { index }?.let { Store(ctx).save(it) } }
     }
 
     fun clear(ctx: Context) { index = null; Store(ctx).clear() }

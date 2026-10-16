@@ -43,7 +43,7 @@ class MainActivity : Activity() {
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; val p = dp(20); setPadding(p, dp(36), p, dp(36)) }
         setContentView(ScrollView(this).apply { setBackgroundColor(0xFF0E0E10.toInt()); addView(list) })
         Repo.listen(onSync)
-        handle(intent)
+        if (savedInstanceState == null) handle(intent)   // not again when it's recreated with the same sign-in redirect
         check(quiet = true)
     }
 
@@ -53,7 +53,7 @@ class MainActivity : Activity() {
 
     private fun handle(intent: Intent?) {
         val data = intent?.data
-        if (data?.scheme == "io.github.bosthecoder.tickfind") finishSignIn(data)
+        if (data?.scheme == "io.github.bosthecoder.tickfind" && store.pending != null) finishSignIn(data)
         if (intent?.action == Update.ACTION) installStatus(intent)
     }
 

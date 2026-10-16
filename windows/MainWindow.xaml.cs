@@ -26,7 +26,7 @@ public partial class MainWindow : Window
     List<TTask> tasks = new();
     Dictionary<string, string> lists = new();
     DateTime synced = DateTime.MinValue;
-    bool syncing, tips;
+    bool syncing, tips, busy;   // busy: a save or completion is on its way to TickTick
     string? note;               // the status line's message, when there is one (errors, "Saved")
     Updater.Release? update;
 
@@ -71,9 +71,9 @@ public partial class MainWindow : Window
         ExpandButton.MouseLeftButtonUp += (_, _) => ToggleExpanded();
         BackButton.MouseLeftButtonUp += (_, _) => Back();
         Status.MouseLeftButtonUp += (_, _) => { if (update != null && note == null) _ = Install(); };
-        OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };
-        SaveButton.Click += async (_, _) => await Save(force: false);
-        CompleteButton.Click += async (_, _) => await Complete();
+        OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // only hides: edits stay
+        SaveButton.Click += async (_, _) => await Save(force: false, complete: false);
+        CompleteButton.Click += async (_, _) => await Save(force: false, complete: true);
         BannerA.Click += (_, _) => { Banner.Visibility = Visibility.Collapsed; bannerA?.Invoke(); };
         BannerB.Click += (_, _) => { Banner.Visibility = Visibility.Collapsed; bannerB?.Invoke(); };
         AddItem.TextChanged += (_, _) => AddItemHint.Visibility = AddItem.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -178,7 +178,9 @@ public partial class MainWindow : Window
         try
         {
             var (fresh, names, failed) = await tt.Sync(s.ArchivedLists);
-            (tasks, lists, synced) = (fresh, names, DateTime.Now);
+            // A list that couldn't be read keeps its old tasks, and the index stays due for a sync, so nothing vanishes from search.
+            fresh.AddRange(tasks.Where(t => failed.Contains(t.List)));
+            (tasks, lists, synced) = (fresh, names, failed.Count == 0 ? DateTime.Now : synced);
             note = failed.Count > 0 ? $"Couldn't read {string.Join(", ", failed)}" : null;
             SaveCache();
         }
@@ -425,7 +427,7 @@ public partial class MainWindow : Window
         if (EditPage.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) Back();
-            else if (ctrl && e.Key == Key.S) _ = Save(force: false);
+            else if (ctrl && e.Key == Key.S) _ = Save(force: false, complete: false);
             else if (ctrl && e.Key == Key.Enter && editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text);
             else return;
             e.Handled = true;
@@ -510,20 +512,26 @@ public partial class MainWindow : Window
     /// A task from TickTick's own search: not in the index (it may be completed), so load it first.
     async void OpenEditor(string id, string list)
     {
+        if (editing != null || note == "Opening…") return;   // a second Enter while the first is loading
         note = "Opening…";
         RenderStatus();
         try
         {
             var j = await tt.Get(id);
             note = null;
-            OpenEditor(TickTick.Parse(j, list), j);
+            if (editing == null && server != null) OpenEditor(TickTick.Parse(j, list), j);
+            else RenderStatus();
         }
         catch (Exception e) { note = "Couldn't open it: " + e.Message; RenderStatus(); }
     }
 
     async Task Load(string id)
     {
-        try { Fill(await tt.Get(id)); }
+        try
+        {
+            var j = await tt.Get(id);
+            if (loaded == null) Fill(j);   // a slower, earlier load of the same task mustn't reset what you've typed since
+        }
         catch (NeedsSignIn) { EditStatus.Text = "TickTick signed you out: go back and sign in to edit"; }
         catch (Exception e) { EditStatus.Text = "Couldn't load it from TickTick: " + e.Message; }
     }
@@ -587,21 +595,22 @@ public partial class MainWindow : Window
         }
     }
 
-    static string Text(TextBox b) => b.Text.Replace("\r\n", "\n");
+    static string Lf(string? t) => (t ?? "").Replace("\r\n", "\n");
 
-    /// Only the fields you changed, in the shape update_task wants.
+    /// Only the fields you changed, in the shape update_task wants. An item typed but not yet added with Enter counts too.
     JsonObject Changes()
     {
         var c = new JsonObject();
         if (loaded == null) return c;
         var checklist = (string?)loaded["kind"] == "CHECKLIST";
         var field = checklist ? "desc" : "content";
-        if (Text(EditTitle) != ((string?)loaded["title"] ?? "")) c["title"] = Text(EditTitle);
-        if (Text(EditContent) != ((string?)loaded[field] ?? "")) c[field] = Text(EditContent);
+        if (Lf(EditTitle.Text) != Lf((string?)loaded["title"])) c["title"] = Lf(EditTitle.Text);
+        if (Lf(EditContent.Text) != Lf((string?)loaded[field])) c[field] = Lf(EditContent.Text);
         if (editPriority != ((int?)loaded["priority"] ?? 0)) c["priority"] = editPriority;
         if (checklist)
         {
-            var items = new JsonArray(editItems.Select((x, i) =>
+            var pending = AddItem.Text.Trim() is { Length: > 0 } t ? [new JsonObject { ["title"] = t, ["status"] = 0 }] : Array.Empty<JsonObject>();
+            var items = new JsonArray(editItems.Concat(pending).Select((x, i) =>
             {
                 var y = (JsonObject)x.DeepClone();
                 y["sortOrder"] ??= i;
@@ -612,55 +621,58 @@ public partial class MainWindow : Window
         return c;
     }
 
-    async Task Save(bool force)
+    /// Saves what you changed and, with [complete], then marks the task done. Unless [force], it first checks the task
+    /// hasn't changed in TickTick since it loaded (TickTick accepts a stale etag) and asks if it has.
+    /// While it runs, Back, Esc and a second Save do nothing, so it can only ever act on the task it started with.
+    async Task Save(bool force, bool complete)
     {
-        if (editing == null || loaded == null) return;
+        if (busy || editing == null || loaded == null) return;
+        var (t, l) = (editing, loaded);
         var changes = Changes();
-        if (changes.Count == 0) { ShowSearch(); return; }
-        if (demo) { Ask("This is the demo, so nothing was saved.", "OK", ShowSearch, "Keep editing", () => { }); return; }
+        var projectId = (string)l["projectId"]!;
+        if (changes.Count == 0 && !complete) { ShowSearch(); return; }
+        if (demo)
+        {
+            if (complete) { tasks.RemoveAll(x => x.Id == t.Id); ShowSearch(); }
+            else Ask("This is the demo, so nothing was saved.", "OK", ShowSearch, "Keep editing", () => { });
+            return;
+        }
+        busy = true;
         Editable(false);
-        EditStatus.Text = "Saving…";
+        Banner.Visibility = Visibility.Collapsed;
+        EditStatus.Text = complete ? "Completing…" : "Saving…";
         try
         {
-            // TickTick accepts a stale etag, so check for a change made elsewhere ourselves before overwriting it.
-            if (!force)
+            if (changes.Count > 0)
             {
-                var now = await tt.Get(editing.Id);
-                if ((string?)now["etag"] != (string?)loaded["etag"])
+                if (!force)
                 {
-                    Editable(true);
-                    EditStatus.Text = "";
-                    Ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
-                        "Save mine", () => _ = Save(force: true), "Show theirs", () => Fill(now));
-                    return;
+                    var now = await tt.Get(t.Id);
+                    if ((string?)now["etag"] != (string?)l["etag"])
+                    {
+                        Editable(true);
+                        EditStatus.Text = "";
+                        Ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
+                            "Save mine", () => _ = Save(force: true, complete), "Show theirs", () => Fill(now));
+                        return;
+                    }
                 }
+                var saved = await tt.Update(t.Id, projectId, changes);
+                Replace(TickTick.Parse(saved, t.List));
+                loaded = saved;   // if completing fails next, a retry compares against this version
             }
-            var saved = await tt.Update(editing.Id, (string)loaded["projectId"]!, changes);
-            Replace(TickTick.Parse(saved, editing.List));
-            note = "Saved";
+            if (complete)
+            {
+                await tt.Complete(projectId, t.Id);
+                tasks.RemoveAll(x => x.Id == t.Id);
+                SaveCache();
+            }
+            note = complete ? $"Completed “{t.Title}”" : "Saved";
             ShowSearch();
         }
         catch (NeedsSignIn) { Editable(true); EditStatus.Text = "TickTick signed you out. Copy your text, then go back and sign in."; }
-        catch (Exception e) { Editable(true); EditStatus.Text = "Didn't save: " + e.Message; }
-    }
-
-    async Task Complete()
-    {
-        if (editing == null || loaded == null) return;
-        var t = editing;
-        if (demo) { tasks.RemoveAll(x => x.Id == t.Id); ShowSearch(); return; }
-        Editable(false);
-        EditStatus.Text = "Completing…";
-        try
-        {
-            if (Changes() is { Count: > 0 } changes) await tt.Update(t.Id, (string)loaded["projectId"]!, changes);   // keep what you typed
-            await tt.Complete((string)loaded["projectId"]!, t.Id);
-            tasks.RemoveAll(x => x.Id == t.Id);
-            SaveCache();
-            note = $"Completed “{t.Title}”";
-            ShowSearch();
-        }
-        catch (Exception e) { Editable(true); EditStatus.Text = "Didn't complete: " + e.Message; }
+        catch (Exception e) { Editable(true); EditStatus.Text = (complete ? "Didn't complete: " : "Didn't save: ") + e.Message; }
+        finally { busy = false; }
     }
 
     void Replace(TTask t)
@@ -672,7 +684,8 @@ public partial class MainWindow : Window
 
     void Back()
     {
-        if (Changes().Count > 0) Ask("You have changes that aren't saved.", "Save", () => _ = Save(force: false), "Discard", ShowSearch);
+        if (busy) return;
+        if (Changes().Count > 0) Ask("You have changes that aren't saved.", "Save", () => _ = Save(force: false, complete: false), "Discard", ShowSearch);
         else ShowSearch();
     }
 
