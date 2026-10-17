@@ -29,7 +29,7 @@ public class Settings
         public static List<View> Defaults() =>
         [
             new() { Name = "Today", Query = "due:overdue due:today -~gcal | #today" },
-            new() { Name = "Recently edited", Query = "sort:modified" },
+            new() { Name = "Recently edited", Query = "sort:modified -~gcal" },
             new() { Name = "Recently added", Query = "sort:created" },
         ];
     }

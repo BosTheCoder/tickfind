@@ -114,7 +114,7 @@ The starting three:
 | View | Search |
 | --- | --- |
 | Today | `due:overdue due:today -~gcal \| #today`: due today or overdue (outside calendar-synced lists), or tagged `#today` |
-| Recently edited | `sort:modified` |
+| Recently edited | `sort:modified -~gcal` |
 | Recently added | `sort:created` |
 
 Change them on Windows under ⚙ → **Views…** (or `Views` in settings.json) and on Android in Settings → **Views**: rename, edit the search, ↑ ↓ to reorder, ✕ to remove, **Add view**. A view with an empty search lists everything in your default sort.
