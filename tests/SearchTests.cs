@@ -81,6 +81,17 @@ public class SearchTests
     }
 
     [Fact]
+    public void Is_list_shows_lists_by_task_count_and_words_narrow_by_name()
+    {
+        var tasks = new[] { T("a"), T("b", list: "🏠Property"), T("c", list: "🏠Property"), T("d", list: "Prop shopping") };
+
+        Assert.True(Search.WantsLists("is:list prop"));
+        Assert.False(Search.WantsLists("~inbox"));
+        Assert.Equal(new[] { ("🏠Property", 2), ("Inbox", 1), ("Prop shopping", 1) }, Search.Lists(tasks, "is:list"));
+        Assert.Equal(new[] { ("🏠Property", 2) }, Search.Lists(tasks, "is:list PROPERTY"));
+    }
+
+    [Fact]
     public void A_typo_still_finds_the_task_but_only_when_nothing_matches_exactly()
     {
         var tasks = new[] { T("Glance widget", 3), T("Glace dessert") };

@@ -63,8 +63,10 @@ class Store(ctx: Context) {
     companion object {
         val DEFAULT_VIEWS = listOf(
             View("Today", "due:overdue due:today -~gcal | #today"),
+            View("Inbox", "~inbox"),
             View("Recently edited", "sort:modified -~gcal"),
             View("Recently added", "sort:created"),
+            View("Lists", "is:list"),
         )
     }
 

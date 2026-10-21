@@ -114,6 +114,17 @@ public static class Search
         return Order(hits, alts.Select(q => q.Sort).FirstOrDefault(s => s != null) ?? defaultSort).ToList();
     }
 
+    /// "is:list" asks for lists rather than tasks.
+    public static bool WantsLists(string text) => Parse(text).Kind?.StartsWith("list") == true;
+
+    /// The lists holding [tasks], with how many each, most first. Every plain word in [text] has to be in the list's name.
+    public static List<(string Name, int Count)> Lists(IEnumerable<TTask> tasks, string text)
+    {
+        var words = Parse(text).Terms;
+        return tasks.GroupBy(t => t.List).Where(g => words.All(g.First().N.List.Contains))
+            .Select(g => (g.Key, g.Count())).OrderByDescending(l => l.Item2).ThenBy(l => l.Key).ToList();
+    }
+
     /// Each task that some side lets through, scored by its best side.
     static List<Hit> Match(IList<TTask> tasks, List<Query> alts, DateTime now, bool fuzzy) =>
         tasks.Select(t => alts.Where(q => Passes(t, q, now)).Select(q => Score(t, q, fuzzy)).OfType<Hit>().MaxBy(h => h.Score))

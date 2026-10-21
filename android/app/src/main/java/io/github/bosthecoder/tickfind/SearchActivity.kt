@@ -198,15 +198,30 @@ class SearchActivity : Activity() {
                 val views = store.views
                 val v = if (q.isEmpty() && views.isNotEmpty()) views[view.coerceIn(0, views.size - 1).also { view = it }] else null
                 if (v != null) renderViewBar(views)
-                val hits = Search.run(pool, v?.query ?: q, store.sort, filter = store.defaultFilter)
-                val terms = Search.parse(q).terms
-                for (h in hits.take(max)) taskRow(h.task, terms)
-                if (hits.isNotEmpty()) firstOpen = { openEditor(hits[0].task) }
-                if (hits.size > max) row(R.drawable.ic_expand, "${hits.size - max} more", if (store.expanded) "Add a word or a filter to narrow it down" else "Tap to show more") {
-                    if (!store.expanded) { store.expanded = true; render() }
+                // A Lists view (is:list) shows lists, and typing narrows them until one is picked, which puts ~"name" in the box.
+                val lv = views.getOrNull(view.coerceIn(0, maxOf(0, views.size - 1)))
+                val lq = if (Search.wantsLists(q)) q else if (lv != null && Search.wantsLists(lv.query) && '~' !in q) lv.query + " " + q else null
+                if (lq != null) {
+                    val found = Search.lists(Search.run(pool, "", store.sort, filter = store.defaultFilter).map { it.task }, lq)
+                    for ((name, count) in found.take(max)) row(R.drawable.ic_search, name, if (count == 1) "1 task" else "$count tasks") {
+                        box.setText("~\"$name\" "); box.setSelection(box.length())
+                    }
+                    if (found.isNotEmpty()) firstOpen = { box.setText("~\"${found[0].first}\" "); box.setSelection(box.length()) }
+                    if (found.size > max) row(R.drawable.ic_expand, "${found.size - max} more", if (store.expanded) "Type part of a name to narrow it down" else "Tap to show more") {
+                        if (!store.expanded) { store.expanded = true; render() }
+                    }
+                    if (found.isEmpty() && index.tasks.isNotEmpty()) row(R.drawable.ic_search, "No list has that in its name", "") {}
+                } else {
+                    val hits = Search.run(pool, v?.query ?: q, store.sort, filter = store.defaultFilter)
+                    val terms = Search.parse(q).terms
+                    for (h in hits.take(max)) taskRow(h.task, terms)
+                    if (hits.isNotEmpty()) firstOpen = { openEditor(hits[0].task) }
+                    if (hits.size > max) row(R.drawable.ic_expand, "${hits.size - max} more", if (store.expanded) "Add a word or a filter to narrow it down" else "Tap to show more") {
+                        if (!store.expanded) { store.expanded = true; render() }
+                    }
+                    if (v != null && hits.isEmpty() && index.tasks.isNotEmpty()) row(R.drawable.ic_search, "Nothing in ${v.name}", "Type to search everything") {}
+                    if (terms.isNotEmpty()) row(R.drawable.ic_search, "Search all of TickTick for “$q”", "TickTick's own search, completed tasks included") { serverSearch(q) }
                 }
-                if (v != null && hits.isEmpty() && index.tasks.isNotEmpty()) row(R.drawable.ic_search, "Nothing in ${v.name}", "Type to search everything") {}
-                if (terms.isNotEmpty()) row(R.drawable.ic_search, "Search all of TickTick for “$q”", "TickTick's own search, completed tasks included") { serverSearch(q) }
                 if (index.tasks.isEmpty()) row(R.drawable.ic_search, if (Repo.syncing) "Reading your tasks from TickTick…" else "Nothing indexed yet", "Tap to sync now") { Repo.sync(this) }
             }
         }

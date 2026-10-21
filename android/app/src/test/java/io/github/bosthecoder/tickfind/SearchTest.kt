@@ -68,6 +68,14 @@ class SearchTest {
         assertEquals(listOf("Someday"), titles(tasks, "someday |"))
     }
 
+    @Test fun is_list_shows_lists_by_task_count_and_words_narrow_by_name() {
+        val tasks = listOf(t("a"), t("b", list = "🏠Property"), t("c", list = "🏠Property"), t("d", list = "Prop shopping"))
+        assertEquals(true, Search.wantsLists("is:list prop"))
+        assertEquals(false, Search.wantsLists("~inbox"))
+        assertEquals(listOf("🏠Property" to 2, "Inbox" to 1, "Prop shopping" to 1), Search.lists(tasks, "is:list"))
+        assertEquals(listOf("🏠Property" to 2), Search.lists(tasks, "is:list PROPERTY"))
+    }
+
     @Test fun a_typo_still_finds_the_task_but_only_when_nothing_matches_exactly() {
         val tasks = listOf(t("Glance widget", 3), t("Glace dessert"))
         assertEquals(listOf("Glance widget", "Glace dessert"), titles(tasks, "glnace"))

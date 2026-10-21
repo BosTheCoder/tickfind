@@ -223,7 +223,7 @@ class MainActivity : Activity() {
                 override fun afterTextChanged(s: android.text.Editable?) { store.defaultFilter = s.toString().trim() }
             })
         })
-        tip("#tag  ~list  -~list  !high !med !low !none  due:today due:week due:overdue has:due (several: any)  a | b (either)  is:note is:checklist  -word  \"exact words\"  sort:priority|best|due|modified|created")
+        tip("#tag  ~list  -~list  !high !med !low !none  due:today due:week due:overdue has:due (several: any)  a | b (either)  is:note is:checklist  is:list (your lists)  -word  \"exact words\"  sort:priority|best|due|modified|created")
         toggle("Include archived lists", store.archived) { store.archived = it; Repo.sync(this) }
         val names = i.tasks.map { it.list }.toSortedSet() + store.excludeLists
         if (names.isNotEmpty()) {

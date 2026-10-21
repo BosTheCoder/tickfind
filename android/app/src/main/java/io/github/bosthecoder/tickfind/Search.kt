@@ -100,6 +100,16 @@ object Search {
         return order(hits, alts.firstNotNullOfOrNull { it.sort } ?: defaultSort)
     }
 
+    /** "is:list" asks for lists rather than tasks. */
+    fun wantsLists(text: String) = parse(text).kind?.startsWith("list") == true
+
+    /** The lists holding [tasks], with how many each, most first. Every plain word in [text] has to be in the list's name. */
+    fun lists(tasks: List<TTask>, text: String): List<Pair<String, Int>> {
+        val words = parse(text).terms
+        return tasks.groupBy { it.list }.filter { (_, g) -> words.all { it in g[0].n.list } }
+            .map { (name, g) -> name to g.size }.sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+    }
+
     /** Each task that some side lets through, scored by its best side. */
     private fun match(tasks: List<TTask>, alts: List<Query>, today: LocalDate, zone: ZoneId, fuzzy: Boolean) =
         tasks.mapNotNull { t -> alts.filter { passes(t, it, today, zone) }.mapNotNull { score(t, it, fuzzy) }.maxByOrNull { it.score } }

@@ -272,16 +272,32 @@ public partial class MainWindow : Window
             var v = q.Length == 0 && s.Views.Count > 0 ? s.Views[view = Math.Clamp(view, 0, s.Views.Count - 1)] : null;
             if (v != null) RenderViewBar();
             var pool = s.ExcludeLists.Count == 0 ? tasks : tasks.Where(t => !s.ExcludeLists.Contains(t.List)).ToList();
-            var hits = Search.Run(pool, v?.Query ?? q, s.SortOrder, DateTime.Now, s.DefaultFilter);
-            var terms = Search.Parse(q).Terms;
-            foreach (var h in hits.Take(max))
-                AddRow(TaskRow(h.Task, terms), () => OpenEditor(h.Task), () => OpenInTickTick(h.Task.ProjectId, h.Task.Id, h.Task.Title));
-            if (hits.Count > max)
-                AddRow(Simple("", $"{hits.Count - max} more", s.Expanded ? "Add a word or a filter to narrow it down" : "Ctrl+E shows more"), () => { if (!s.Expanded) ToggleExpanded(); });
-            if (v != null && hits.Count == 0 && tasks.Count > 0)
-                AddRow(Simple("\uE946", $"Nothing in {v.Name}", "Type to search everything"), () => { });
-            if (terms.Count > 0)
-                AddRow(Simple("", $"Search all of TickTick for “{q}”", "TickTick's own search, completed tasks included"), () => _ = RunServerSearch(q));
+            // A Lists view (is:list) shows lists, and typing narrows them until one is picked, which puts ~"name" in the box.
+            var lv = s.Views.Count > 0 ? s.Views[Math.Clamp(view, 0, s.Views.Count - 1)] : null;
+            var lq = Search.WantsLists(q) ? q : lv != null && Search.WantsLists(lv.Query) && !q.Contains('~') ? lv.Query + " " + q : null;
+            if (lq != null)
+            {
+                var found = Search.Lists(Search.Run(pool, "", s.SortOrder, DateTime.Now, s.DefaultFilter).Select(h => h.Task), lq);
+                foreach (var (name, count) in found.Take(max))
+                    AddRow(Simple("\uE8FD", name, count == 1 ? "1 task" : $"{count} tasks"), () => { Box.Text = $"~\"{name}\" "; Box.CaretIndex = Box.Text.Length; });
+                if (found.Count > max)
+                    AddRow(Simple("\uE712", $"{found.Count - max} more", s.Expanded ? "Type part of a name to narrow it down" : "Ctrl+E shows more"), () => { if (!s.Expanded) ToggleExpanded(); });
+                if (found.Count == 0 && tasks.Count > 0)
+                    AddRow(Simple("\uE946", "No list has that in its name", ""), () => { });
+            }
+            else
+            {
+                var hits = Search.Run(pool, v?.Query ?? q, s.SortOrder, DateTime.Now, s.DefaultFilter);
+                var terms = Search.Parse(q).Terms;
+                foreach (var h in hits.Take(max))
+                    AddRow(TaskRow(h.Task, terms), () => OpenEditor(h.Task), () => OpenInTickTick(h.Task.ProjectId, h.Task.Id, h.Task.Title));
+                if (hits.Count > max)
+                    AddRow(Simple("", $"{hits.Count - max} more", s.Expanded ? "Add a word or a filter to narrow it down" : "Ctrl+E shows more"), () => { if (!s.Expanded) ToggleExpanded(); });
+                if (v != null && hits.Count == 0 && tasks.Count > 0)
+                    AddRow(Simple("\uE946", $"Nothing in {v.Name}", "Type to search everything"), () => { });
+                if (terms.Count > 0)
+                    AddRow(Simple("", $"Search all of TickTick for “{q}”", "TickTick's own search, completed tasks included"), () => _ = RunServerSearch(q));
+            }
             if (tasks.Count == 0)
                 AddRow(Simple("", syncing ? "Reading your tasks from TickTick…" : "Nothing indexed yet", "Ctrl+R syncs now"), () => _ = Sync());
         }
@@ -336,6 +352,7 @@ public partial class MainWindow : Window
         ("due:today  due:tomorrow  due:week  due:overdue  has:due  due:none", "Due date (several: any of them)"),
         ("due:today | #today", "Either side of the |"),
         ("is:note  is:checklist  is:task", "Kind"),
+        ("is:list  is:list prop", "Your lists instead of tasks; pick one to see what's in it"),
         ("sort:priority  sort:best  sort:due  sort:modified  sort:created", "This search only; set the default under ⚙"),
     ];
 
