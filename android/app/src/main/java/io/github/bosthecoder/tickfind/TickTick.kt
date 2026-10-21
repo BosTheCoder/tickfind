@@ -145,7 +145,8 @@ class TickTick(private val store: Store) {
         val all = call("list_projects", JSONObject()) as JSONArray
         val projects = (0 until all.length()).map { all.getJSONObject(it) }
         val names = projects.associate { it.getString("id") to it.str("name") }.toMutableMap()
-        val wanted = projects.filter { archived || !it.optBoolean("closed") }
+        // Calendar-synced lists ("Daily Schedule - GCAL", "Events - GCAL") are never indexed, so no search or view shows them.
+        val wanted = projects.filter { (archived || !it.optBoolean("closed")) && !it.str("name").contains("gcal", ignoreCase = true) }
         val failed = mutableListOf<String>()
         val pool = Executors.newFixedThreadPool(6)
         try {

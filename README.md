@@ -33,7 +33,7 @@ Tickfind is a search box that's always one action away. It keeps an index of eve
 - **Views when it opens.** Before you type, chips under the box show saved searches: *Today*, *Recently edited* and *Recently added* to start with. Add your own, rename them and put them in your order; the box opens on the first. See [Views](#views).
 - **Results as you type**, from every list: titles, notes, checklist items, tags and list names. Every word you type has to match, and case and accents don't matter.
 - **Sorted by priority by default**, then by how well it matches, then by what changed last. Switch to best match, due date, recently changed or recently added, as the default or for one search.
-- **Filters in the box:** `#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `"exact words"` and more ([full list](#search)). Set a default filter that's added to every search, and leave whole lists out.
+- **Filters in the box:** `#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `"exact words"` and more ([full list](#search)). Set a default filter that's added to every search, and leave whole lists out. Calendar-synced lists (any list with GCAL in its name) are never shown.
 - **Forgiving.** If nothing matches exactly, it allows a typo per word, so `glnace` still finds *Glance*.
 - **Quick edit.** Tap a match to read it, change the title, notes or priority, tick or add checklist items, or complete it. Before it saves, it checks whether the task changed in TickTick since you opened it, and asks rather than overwrite.
 - **Open in TickTick** is one tap away from any match.
@@ -128,7 +128,7 @@ On Windows, ⚙ has the common ones: sort order, how many matches, where **Open 
 | `Hotkey` | `Ctrl+Alt+F` | Any `Ctrl`/`Alt`/`Shift`/`Win` + key. Empty for none |
 | `Sort` | `Priority` | `Priority`, `Best`, `Due`, `Modified` or `Created` |
 | `Results` / `ExpandedResults` | `6` / `25` | Matches shown, compact and bigger |
-| `DefaultFilter` | `""` | Added to every search, e.g. `-~gcal` to skip calendar-synced lists |
+| `DefaultFilter` | `""` | Added to every search, e.g. `!high` |
 | `ExcludeLists` | `[]` | List names to leave out entirely |
 | `ArchivedLists` | `false` | Also index lists you've archived |
 | `OpenIn` | `App` | `App`: TickTick for Windows. `Web`: the task in your browser |

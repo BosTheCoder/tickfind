@@ -190,7 +190,8 @@ public class TickTick
     {
         var all = (await Call("list_projects", new { }))!.AsArray().OfType<JsonObject>().ToList();
         var names = all.ToDictionary(p => (string)p["id"]!, p => (string?)p["name"] ?? "?");
-        var projects = all.Where(p => archived || (bool?)p["closed"] != true).ToList();
+        // Calendar-synced lists ("Daily Schedule - GCAL", "Events - GCAL") are never indexed, so no search or view shows them.
+        var projects = all.Where(p => (archived || (bool?)p["closed"] != true) && ((string?)p["name"])?.Contains("gcal", StringComparison.OrdinalIgnoreCase) != true).ToList();
         var gate = new SemaphoreSlim(6);
         var failed = new List<string>();
         var lists = await Task.WhenAll(projects.Select(async p =>
