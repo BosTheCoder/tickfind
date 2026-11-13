@@ -1,0 +1,106 @@
+{
+  "_about": "What search must do, as data. Every implementation runs these: Tickfind Windows (tests/SearchTests.cs), Tickfind Android (SearchTest.kt) and the tasks page in claude-concierge (search.js). Fix a search bug by adding a check here first; every one of them fails until it agrees. Dates: today is 2026-10-16, now is 09:00; dueDays and ageDays count from today. sort defaults to priority, filter to none.",
+  "cases": [
+    {
+      "name": "priority sort puts high priority first; best match puts the title hit first",
+      "tasks": [
+        {"title": "Glance widget", "priority": 3},
+        {"title": "Calendar ideas", "priority": 5, "content": "something like glance"},
+        {"title": "Unrelated", "priority": 5}
+      ],
+      "checks": [
+        {"q": "glance", "want": ["Calendar ideas", "Glance widget"]},
+        {"q": "glance", "sort": "best", "want": ["Glance widget", "Calendar ideas"]},
+        {"q": "glance sort:best", "want": ["Glance widget", "Calendar ideas"]}
+      ]
+    },
+    {
+      "name": "every word must match somewhere, ignoring case and accents",
+      "tasks": [
+        {"title": "Café plan", "content": "book the room"},
+        {"title": "Café menu"},
+        {"title": "Room booking", "items": ["call the café"]}
+      ],
+      "checks": [{"q": "CAFE room", "sort": "best", "want": ["Café plan", "Room booking"]}]
+    },
+    {
+      "name": "filters narrow by tag, list, priority, kind, due and excluded words",
+      "tasks": [
+        {"title": "Plumber quote", "priority": 5, "list": "🏘 Property", "tags": ["urgent"], "dueDays": -1},
+        {"title": "Plumber invoice", "priority": 1, "list": "🏘 Property", "dueDays": 0},
+        {"title": "Plumber notes", "list": "Quick Notes", "kind": "NOTE"}
+      ],
+      "checks": [
+        {"q": "plumber #urg", "want": ["Plumber quote"]},
+        {"q": "plumber ~property", "want": ["Plumber quote", "Plumber invoice"]},
+        {"q": "plumber -~property", "want": ["Plumber notes"]},
+        {"q": "!low", "want": ["Plumber invoice"]},
+        {"q": "is:note", "want": ["Plumber notes"]},
+        {"q": "due:overdue", "want": ["Plumber quote"]},
+        {"q": "due:today", "want": ["Plumber invoice"]},
+        {"q": "plumber -invoice", "want": ["Plumber quote", "Plumber notes"]}
+      ]
+    },
+    {
+      "name": "due values combine with or",
+      "tasks": [
+        {"title": "Late", "dueDays": -1},
+        {"title": "Now", "dueDays": 0},
+        {"title": "Later", "dueDays": 1}
+      ],
+      "checks": [{"q": "due:overdue due:today", "sort": "due", "want": ["Late", "Now"]}]
+    },
+    {
+      "name": "a bar means or, and the filter applies to each side",
+      "tasks": [
+        {"title": "Overdue chore", "priority": 3, "dueDays": -1},
+        {"title": "Daily standup", "priority": 5, "list": "Daily Schedule - GCAL", "dueDays": 0},
+        {"title": "Tagged today", "priority": 1, "tags": ["today"]},
+        {"title": "Calendar tagged", "priority": 5, "list": "Events - GCAL", "tags": ["today"]},
+        {"title": "Someday"}
+      ],
+      "checks": [
+        {"q": "due:overdue due:today -~gcal | #today", "filter": "-~events", "want": ["Overdue chore", "Tagged today"]},
+        {"q": "someday |", "want": ["Someday"]}
+      ]
+    },
+    {
+      "name": "his Today and Next views (ticktick-core rules.toml), on lists with calendar mirrors already left out",
+      "tasks": [
+        {"title": "Overdue chore", "priority": 3, "dueDays": -1},
+        {"title": "Due today", "dueDays": 0},
+        {"title": "Tagged today", "priority": 1, "tags": ["today"]},
+        {"title": "Tomorrow", "priority": 5, "dueDays": 1},
+        {"title": "Doing it", "priority": 3, "tags": ["doing"]},
+        {"title": "Up next", "tags": ["next"]}
+      ],
+      "checks": [
+        {"q": "due:overdue due:today | #today", "want": ["Overdue chore", "Tagged today", "Due today"]},
+        {"q": "#next | #doing", "want": ["Doing it", "Up next"]}
+      ]
+    },
+    {
+      "name": "a typo still finds the task, but only when nothing matches exactly",
+      "tasks": [
+        {"title": "Glance widget", "priority": 3},
+        {"title": "Glace dessert"}
+      ],
+      "checks": [
+        {"q": "glnace", "want": ["Glance widget", "Glace dessert"]},
+        {"q": "glance", "want": ["Glance widget"]}
+      ]
+    },
+    {
+      "name": "an empty query lists everything in the default sort",
+      "tasks": [
+        {"title": "Old", "ageDays": 9},
+        {"title": "New"},
+        {"title": "Urgent", "priority": 5, "ageDays": 30}
+      ],
+      "checks": [
+        {"q": "", "want": ["Urgent", "New", "Old"]},
+        {"q": "", "sort": "modified", "want": ["New", "Old", "Urgent"]}
+      ]
+    }
+  ]
+}

@@ -3,11 +3,15 @@ package io.github.bosthecoder.tickfind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Test
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneOffset
 
-/** The same cases as the Windows app's SearchTests.cs, so the two apps rank alike. */
+/** Most search behaviour is checked against tests/search-cases.json, the checks every implementation runs
+ *  (Windows, this app, the tasks page), so they all rank alike. These cover the rest. */
 class SearchTest {
     private val today = LocalDate.of(2026, 10, 16)
     private val now = today.atTime(9, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
@@ -20,53 +24,27 @@ class SearchTest {
             dueDays?.let { today.plusDays(it.toLong()).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli() },
             now - ageDays * day, now - ageDays * day, list)
 
+    @Test fun search_does_what_search_cases_json_says() {
+        val cases = JSONObject(File("../../tests/search-cases.json").readText()).getJSONArray("cases")
+        for (c in (0 until cases.length()).map(cases::getJSONObject)) {
+            val ts = c.getJSONArray("tasks").let { a -> (0 until a.length()).map(a::getJSONObject) }.map { j ->
+                t(j.getString("title"), j.optInt("priority"), j.optString("content"), j.optString("list", "Inbox"),
+                    strings(j.optJSONArray("tags")), strings(j.optJSONArray("items")),
+                    if (j.has("dueDays")) j.getInt("dueDays") else null, j.optString("kind", "TEXT"), j.optInt("ageDays"))
+            }
+            val checks = c.getJSONArray("checks")
+            for (k in (0 until checks.length()).map(checks::getJSONObject)) {
+                val sort = Search.sortOf(k.optString("sort", "priority"))!!
+                assertEquals("${c.getString("name")}: \"${k.getString("q")}\"", strings(k.getJSONArray("want")),
+                    titles(ts, k.getString("q"), sort, k.optString("filter")))
+            }
+        }
+    }
+
+    private fun strings(a: JSONArray?) = a?.let { (0 until it.length()).map(it::getString) } ?: listOf()
+
     private fun titles(tasks: List<TTask>, q: String, sort: Sort = Sort.Priority, filter: String = "") =
         Search.run(tasks, q, sort, today, ZoneOffset.UTC, filter).map { it.task.title }
-
-    @Test fun priority_sort_puts_high_priority_first_and_best_match_puts_the_title_hit_first() {
-        val tasks = listOf(t("Glance widget", 3), t("Calendar ideas", 5, content = "something like glance"), t("Unrelated", 5))
-        assertEquals(listOf("Calendar ideas", "Glance widget"), titles(tasks, "glance"))
-        assertEquals(listOf("Glance widget", "Calendar ideas"), titles(tasks, "glance", Sort.Best))
-        assertEquals(listOf("Glance widget", "Calendar ideas"), titles(tasks, "glance sort:best"))
-    }
-
-    @Test fun every_word_must_match_somewhere_ignoring_case_and_accents() {
-        val tasks = listOf(t("Café plan", content = "book the room"), t("Café menu"), t("Room booking", items = listOf("call the café")))
-        assertEquals(listOf("Café plan", "Room booking"), titles(tasks, "CAFE room", Sort.Best))
-    }
-
-    @Test fun filters_narrow_by_tag_list_priority_kind_due_and_excluded_words() {
-        val tasks = listOf(
-            t("Plumber quote", 5, list = "🏘 Property", tags = listOf("urgent"), dueDays = -1),
-            t("Plumber invoice", 1, list = "🏘 Property", dueDays = 0),
-            t("Plumber notes", 0, list = "Quick Notes", kind = "NOTE"),
-        )
-        assertEquals(listOf("Plumber quote"), titles(tasks, "plumber #urg"))
-        assertEquals(listOf("Plumber quote", "Plumber invoice"), titles(tasks, "plumber ~property"))
-        assertEquals(listOf("Plumber notes"), titles(tasks, "plumber -~property"))
-        assertEquals(listOf("Plumber invoice"), titles(tasks, "!low"))
-        assertEquals(listOf("Plumber notes"), titles(tasks, "is:note"))
-        assertEquals(listOf("Plumber quote"), titles(tasks, "due:overdue"))
-        assertEquals(listOf("Plumber invoice"), titles(tasks, "due:today"))
-        assertEquals(listOf("Plumber quote", "Plumber notes"), titles(tasks, "plumber -invoice"))
-    }
-
-    @Test fun due_values_combine_with_or() {
-        val tasks = listOf(t("Late", dueDays = -1), t("Now", dueDays = 0), t("Later", dueDays = 1))
-        assertEquals(listOf("Late", "Now"), titles(tasks, "due:overdue due:today", Sort.Due))
-    }
-
-    @Test fun bar_means_or_and_the_filter_applies_to_each_side() {
-        val tasks = listOf(
-            t("Overdue chore", 3, dueDays = -1),
-            t("Daily standup", 5, list = "Daily Schedule - GCAL", dueDays = 0),
-            t("Tagged today", 1, tags = listOf("today")),
-            t("Calendar tagged", 5, list = "Events - GCAL", tags = listOf("today")),
-            t("Someday", 0),
-        )
-        assertEquals(listOf("Overdue chore", "Tagged today"), titles(tasks, "due:overdue due:today -~gcal | #today", filter = "-~events"))
-        assertEquals(listOf("Someday"), titles(tasks, "someday |"))
-    }
 
     @Test fun is_list_shows_lists_by_task_count_and_words_narrow_by_name() {
         val tasks = listOf(t("a"), t("b", list = "🏠Property"), t("c", list = "🏠Property"), t("d", list = "Prop shopping"))
@@ -74,18 +52,6 @@ class SearchTest {
         assertEquals(false, Search.wantsLists("~inbox"))
         assertEquals(listOf("🏠Property" to 2, "Inbox" to 1, "Prop shopping" to 1), Search.lists(tasks, "is:list"))
         assertEquals(listOf("🏠Property" to 2), Search.lists(tasks, "is:list PROPERTY"))
-    }
-
-    @Test fun a_typo_still_finds_the_task_but_only_when_nothing_matches_exactly() {
-        val tasks = listOf(t("Glance widget", 3), t("Glace dessert"))
-        assertEquals(listOf("Glance widget", "Glace dessert"), titles(tasks, "glnace"))
-        assertEquals(listOf("Glance widget"), titles(tasks, "glance"))
-    }
-
-    @Test fun empty_query_lists_everything_in_the_default_sort() {
-        val tasks = listOf(t("Old", ageDays = 9), t("New"), t("Urgent", 5, ageDays = 30))
-        assertEquals(listOf("Urgent", "New", "Old"), titles(tasks, ""))
-        assertEquals(listOf("New", "Old", "Urgent"), titles(tasks, "", Sort.Modified))
     }
 
     @Test fun lev1() {
