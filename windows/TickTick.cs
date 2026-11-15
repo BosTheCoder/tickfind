@@ -259,7 +259,7 @@ public class TickTick
         return DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
     }
 
-    public static string WebUrl(string projectId, string id) => $"https://ticktick.com/webapp/#p/{projectId}/tasks/{id}";
+    public static string WebUrl(string projectId, string id = "") => $"https://ticktick.com/webapp/#p/{projectId}/tasks" + (id.Length > 0 ? "/" + id : "");
 
     static string Form(Dictionary<string, string> kv) => string.Join("&", kv.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
     static string B64(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');

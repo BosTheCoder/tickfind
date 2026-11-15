@@ -293,6 +293,13 @@ public partial class MainWindow : Window
             {
                 var hits = Search.Run(pool, v?.Query ?? q, s.SortOrder, DateTime.Now, s.DefaultFilter);
                 var terms = Search.Parse(q).Terms;
+                // A picked list (~"name") gets a way into TickTick at that list. Windows' app has no list link, so it's the web app.
+                var one = hits.Select(h => h.Task.ProjectId).Distinct().Take(2).ToList();
+                if (q.Contains('~') && one.Count == 1)
+                {
+                    var url = TickTick.WebUrl(one[0]);
+                    AddRow(Simple("\uE8A7", $"Open {hits[0].Task.List} in TickTick", "The whole list, in TickTick's web app"), () => OpenUrl(url));
+                }
                 foreach (var h in hits.Take(max))
                     AddRow(TaskRow(h.Task, terms), () => OpenEditor(h.Task), () => OpenInTickTick(h.Task.ProjectId, h.Task.Id, h.Task.Title));
                 if (hits.Count > max)
@@ -553,6 +560,12 @@ public partial class MainWindow : Window
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             Hide();
         }
+        catch (Exception e) { note = "Couldn't open TickTick: " + e.Message; RenderStatus(); }
+    }
+
+    void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); Hide(); }
         catch (Exception e) { note = "Couldn't open TickTick: " + e.Message; RenderStatus(); }
     }
 

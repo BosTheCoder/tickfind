@@ -31,9 +31,9 @@ class TickTick(private val store: Store) {
         const val REDIRECT = "io.github.bosthecoder.tickfind:/oauth"
         const val PACKAGE = "com.ticktick.task"
 
-        fun webUrl(projectId: String, id: String) = "https://ticktick.com/webapp/#p/$projectId/tasks/$id"
+        fun webUrl(projectId: String, id: String = "") = "https://ticktick.com/webapp/#p/$projectId/tasks" + if (id.isEmpty()) "" else "/$id"
 
-        /** The TickTick app claims ticktick.com/webapp links, so the task's web link goes to the app if it's installed, else the browser. */
+        /** The TickTick app claims ticktick.com/webapp links, so the task's (or with no [id], the list's) web link goes to the app if it's installed, else the browser. */
         fun open(ctx: Context, projectId: String, id: String, web: Boolean) {
             val view = Intent(Intent.ACTION_VIEW, Uri.parse(webUrl(projectId, id))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (!web) try { ctx.startActivity(Intent(view).setPackage(PACKAGE)); return } catch (_: ActivityNotFoundException) { }
