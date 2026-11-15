@@ -71,6 +71,9 @@ public partial class MainWindow : Window
         startQuery = query;
         PreviewKeyDown += OnKey;
         Deactivated += (_, _) => { if (!pin) Hide(); };
+        // Drag an edge to resize; the width is kept for next time.
+        SizeChanged += (_, e) => { if (e.WidthChanged && IsVisible && Math.Abs(ActualWidth - s.Width) >= 1) { s.Width = Math.Round(ActualWidth); resized = true; } };
+        IsVisibleChanged += (_, _) => { if (!IsVisible && resized && !demo) { resized = false; Persist(); } };
         GearButton.MouseLeftButtonUp += (_, _) => ShowMenu();
         ExpandButton.MouseLeftButtonUp += (_, _) => ToggleExpanded();
         BackButton.MouseLeftButtonUp += (_, _) => Back();
@@ -125,6 +128,7 @@ public partial class MainWindow : Window
         }
         if (EditPage.Visibility == Visibility.Visible && Changes().Count == 0) ShowSearch();
         Width = s.Width;
+        SizeToContent = SizeToContent.Height;   // dragging the top or bottom edge turns it off
         var wa = Native.WorkAreaAtCursor(this);
         Left = wa.Left + (wa.Width - Width) / 2;
         Top = wa.Top + wa.Height * 0.15;
@@ -529,6 +533,8 @@ public partial class MainWindow : Window
         Persist();
         Render();
     }
+
+    bool resized;
 
     void Persist()
     {

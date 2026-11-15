@@ -136,7 +136,7 @@ On Windows, ⚙ has the common ones: sort order, how many matches, where **Open 
 | `ArchivedLists` | `false` | Also index lists you've archived |
 | `OpenIn` | `App` | `App`: TickTick for Windows. `Web`: the task in your browser |
 | `RefreshMinutes` | `5` | Re-sync when the box opens if the index is older than this |
-| `Width` | `640` | Width of the box |
+| `Width` | `640` | Width of the box (or drag its left or right edge) |
 | `Views` | Today, Inbox, Recently edited, Recently added, Lists | `[{ "Name": "…", "Query": "…" }]`, in order. See [Views](#views) |
 
 Android has the same settings on its settings screen.
