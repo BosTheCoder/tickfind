@@ -35,7 +35,7 @@ Tickfind is a search box that's always one action away. It keeps an index of eve
 - **Sorted by priority by default**, then by how well it matches, then by what changed last. Switch to best match, due date, recently changed or recently added, as the default or for one search.
 - **Filters in the box:** `#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `"exact words"` and more ([full list](#search)). Set a default filter that's added to every search, and leave whole lists out. Calendar-synced lists (any list with GCAL in its name) are never shown.
 - **Forgiving.** If nothing matches exactly, it allows a typo per word, so `glnace` still finds *Glance*.
-- **Quick edit.** Tap a match to read it, change the title, notes or priority, tick or add checklist items, or complete it. Before it saves, it checks whether the task changed in TickTick since you opened it, and asks rather than overwrite.
+- **Quick edit.** Tap a match to read it, change the title, notes or priority, tick or add checklist items, or complete it. Leaving the editor saves (Back, Esc, closing the box or switching app); for 10 minutes after, tapping *Saved … · undo* in the status line puts it back. Before it saves, it checks whether the task changed in TickTick since you opened it, and asks rather than overwrite.
 - **Open in TickTick** is one tap away from any match.
 - **Compact or bigger.** A few matches by default; <kbd>Ctrl</kbd>+<kbd>E</kbd> (or ⤢) shows more.
 - **Searches everything if you need it:** the last row hands your search to TickTick's own search, which includes completed tasks.

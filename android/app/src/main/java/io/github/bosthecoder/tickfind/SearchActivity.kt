@@ -69,6 +69,10 @@ class SearchActivity : Activity() {
     private var editItems = mutableListOf<JSONObject>()
     /** A save or completion is on its way to TickTick: Back and a second Save wait, so it only ever acts on the task it started with. */
     private var busy = false
+    /** The last save, as it was before, so the status line can put it back. */
+    private class Undo(val task: TTask, val projectId: String, val before: JSONObject, val at: Long)
+    private var undo: Undo? = null
+    private fun undoLive() = undo.let { it != null && System.currentTimeMillis() - it.at < 10 * 60_000L }
 
     private val onSync: () -> Unit = { if (editing == null) render() else renderStatus() }
 
@@ -85,6 +89,12 @@ class SearchActivity : Activity() {
     }
 
     override fun onDestroy() { Repo.unlisten(onSync); super.onDestroy() }
+
+    /** Home, another app, the screen going off: whatever you typed is saved. */
+    override fun onStop() {
+        super.onStop()
+        if (editing != null && changes().length() > 0) save(force = false, complete = false)
+    }
 
     /** The manifest keeps rotation, dark mode, font size and resizing from recreating this (which would lose the editor). */
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) { super.onConfigurationChanged(newConfig); size() }
@@ -140,7 +150,7 @@ class SearchActivity : Activity() {
         results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll = MaxScroll(this).apply { addView(results); isVerticalScrollBarEnabled = false }
         searchPage.addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        status = text("", 12f, FAINT).apply { setPadding(dp(4), dp(8), dp(4), 0); maxLines = 2; setOnClickListener { if (note == null) openSettings() } }
+        status = text("", 12f, FAINT).apply { setPadding(dp(4), dp(8), dp(4), 0); maxLines = 2; setOnClickListener { if (note == null && !Repo.syncing) { if (undoLive()) undoSave() else openSettings() } } }
         searchPage.addView(status)
         card.addView(searchPage, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         buildEditor()
@@ -247,6 +257,7 @@ class SearchActivity : Activity() {
         status.text = when {
             Repo.syncing -> "Syncing with TickTick…"
             note != null -> note
+            undoLive() -> "Saved “${undo!!.task.title}” · tap to undo"
             Repo.error != null -> Repo.error
             Repo.demo -> "Demo: made-up tasks, nothing is saved"
             i.synced == 0L -> ""
@@ -503,6 +514,7 @@ class SearchActivity : Activity() {
                     if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return@runCatching now }
                     saved = tt.update(t.id, projectId, c)
                     Repo.put(this, TickTick.parse(saved!!, t.list).copy(modified = System.currentTimeMillis()))
+                    if (!complete) undo = Undo(t, projectId, before(l, c), System.currentTimeMillis())
                 }
                 if (complete) { tt.complete(projectId, t.id); Repo.remove(this, t.id) }
                 null
@@ -515,7 +527,7 @@ class SearchActivity : Activity() {
                         editable(true); editStatus.text = ""
                         ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
                             "Save mine", { save(force = true, complete) }, "Show theirs") { fill(theirs) }
-                    } else { note = if (complete) "Completed “${t.title}”" else "Saved"; showSearch() }
+                    } else { note = if (complete) "Completed “${t.title}”" else null; showSearch() }   // a save shows its undo instead
                 }.onFailure {
                     editable(true)
                     editStatus.text = when {
@@ -524,6 +536,29 @@ class SearchActivity : Activity() {
                         else -> "Didn't save: ${it.message}"
                     }
                 }
+            }
+        }
+    }
+
+    /** The fields [c] touched, as they were in [l], to send back on undo. */
+    private fun before(l: JSONObject, c: JSONObject) = JSONObject().also { b ->
+        for (k in c.keys()) b.put(k, if (l.isNull(k)) when (k) { "items" -> JSONArray(); "priority" -> 0; else -> "" } else JSONObject(l.toString()).get(k))
+    }
+
+    /** Puts back the fields the last save changed. */
+    private fun undoSave() {
+        val u = undo ?: return
+        if (busy) return
+        undo = null; busy = true; note = "Undoing…"; renderStatus()
+        thread {
+            val r = runCatching {
+                val saved = tt.update(u.task.id, u.projectId, JSONObject(u.before.toString()))
+                Repo.put(this, TickTick.parse(saved, u.task.list).copy(modified = System.currentTimeMillis()))
+            }
+            runOnUiThread {
+                busy = false
+                note = r.fold({ "Undone: “${u.task.title}” is back as it was" }, { "Couldn't undo: ${it.message}" })
+                if (editing == null) render() else renderStatus()
             }
         }
     }
@@ -540,7 +575,7 @@ class SearchActivity : Activity() {
 
     private fun back() {
         if (busy) return
-        if (changes().length() > 0) ask("You have changes that aren't saved.", "Save", { save(force = false, complete = false) }, "Discard", ::showSearch)
+        if (changes().length() > 0) save(force = false, complete = false)   // leaving saves; the status line offers undo
         else showSearch()
     }
 

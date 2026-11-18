@@ -43,6 +43,10 @@ public partial class MainWindow : Window
     int editPriority;
     List<JsonObject> editItems = new();
     Action? bannerA, bannerB;
+    // The last save, as it was before, so the status line can put it back
+    record Undo(TTask Task, string ProjectId, JsonObject Before, DateTime At);
+    Undo? undo;
+    bool UndoLive => undo != null && DateTime.Now - undo.At < TimeSpan.FromMinutes(10);
 
     static string CachePath => Path.Combine(AppContext.BaseDirectory, "tasks.json");
     record Cache(DateTime Synced, Dictionary<string, string> Lists, List<TTask> Tasks);
@@ -73,14 +77,23 @@ public partial class MainWindow : Window
         Deactivated += (_, _) => { if (!pin) Hide(); };
         // Drag an edge to resize; the width is kept for next time.
         SizeChanged += (_, e) => { if (e.WidthChanged && IsVisible && Math.Abs(ActualWidth - s.Width) >= 1) { s.Width = Math.Round(ActualWidth); resized = true; } };
-        IsVisibleChanged += (_, _) => { if (!IsVisible && resized && !demo) { resized = false; Persist(); } };
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible) return;
+            if (resized && !demo) { resized = false; Persist(); }
+            if (EditPage.Visibility == Visibility.Visible && Changes().Count > 0) _ = Save(force: false, complete: false);   // closing saves
+        };
         GearButton.MouseLeftButtonUp += (_, _) => ShowMenu();
         ExpandButton.MouseLeftButtonUp += (_, _) => ToggleExpanded();
         BackButton.MouseLeftButtonUp += (_, _) => Back();
         ViewsBack.MouseLeftButtonUp += (_, _) => ShowSearch();
         AddViewButton.Click += (_, _) => { s.Views.Add(new() { Name = "New view" }); Persist(); RenderViews(focusLast: true); };
-        Status.MouseLeftButtonUp += (_, _) => { if (update != null && note == null) _ = Install(); };
-        OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // only hides: edits stay
+        Status.MouseLeftButtonUp += (_, _) =>
+        {
+            if (syncing || note != null) return;
+            if (UndoLive) _ = UndoSave(); else if (update != null) _ = Install();
+        };
+        OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // hiding saves any edits
         CopyButton.Click += (_, _) => CopyLink();
         SaveButton.Click += async (_, _) => await Save(force: false, complete: false);
         CompleteButton.Click += async (_, _) => await Save(force: false, complete: true);
@@ -347,10 +360,11 @@ public partial class MainWindow : Window
     void RenderStatus()
     {
         Status.Text = syncing ? "Syncing with TickTick…"
-            : note ?? (update != null ? $"Update to {update.Tag} available: click to install"
+            : note ?? (UndoLive ? $"Saved “{undo!.Task.Title}” · click to undo"
+            : update != null ? $"Update to {update.Tag} available: click to install"
             : demo ? "Demo: made-up tasks, nothing is saved"
             : synced == DateTime.MinValue ? "" : $"{tasks.Count:N0} tasks · synced {Ago(synced)}");
-        Status.Cursor = update != null && note == null ? Cursors.Hand : Cursors.Arrow;
+        Status.Cursor = (UndoLive || update != null) && note == null && !syncing ? Cursors.Hand : Cursors.Arrow;
     }
 
     static readonly (string, string)[] Tips =
@@ -768,6 +782,7 @@ public partial class MainWindow : Window
                 var saved = await tt.Update(t.Id, projectId, changes);
                 Replace(TickTick.Parse(saved, t.List) with { Modified = DateTimeOffset.Now });
                 loaded = saved;   // if completing fails next, a retry compares against this version
+                undo = complete ? null : new(t, projectId, Before(l, changes), DateTime.Now);
             }
             if (complete)
             {
@@ -775,12 +790,38 @@ public partial class MainWindow : Window
                 tasks.RemoveAll(x => x.Id == t.Id);
                 SaveCache();
             }
-            note = complete ? $"Completed “{t.Title}”" : "Saved";
+            note = complete ? $"Completed “{t.Title}”" : null;   // a save shows its undo instead
             ShowSearch();
         }
         catch (NeedsSignIn) { Editable(true); EditStatus.Text = "TickTick signed you out. Copy your text, then go back and sign in."; }
         catch (Exception e) { Editable(true); EditStatus.Text = (complete ? "Didn't complete: " : "Didn't save: ") + e.Message; }
         finally { busy = false; }
+    }
+
+    /// The fields [changes] touched, as they were in [l], to send back on undo.
+    static JsonObject Before(JsonObject l, JsonObject changes)
+    {
+        var b = new JsonObject();
+        foreach (var (k, _) in changes)
+            b[k] = l[k]?.DeepClone() ?? (k switch { "items" => new JsonArray(), "priority" => JsonValue.Create(0), _ => JsonValue.Create("") });
+        return b;
+    }
+
+    /// Puts back the fields the last save changed.
+    async Task UndoSave()
+    {
+        if (busy || undo is not { } u) return;
+        (undo, busy, note) = (null, true, "Undoing…");
+        RenderStatus();
+        try
+        {
+            var saved = await tt.Update(u.Task.Id, u.ProjectId, (JsonObject)u.Before.DeepClone());
+            Replace(TickTick.Parse(saved, u.Task.List) with { Modified = DateTimeOffset.Now });
+            note = $"Undone: “{u.Task.Title}” is back as it was";
+        }
+        catch (Exception e) { note = "Couldn't undo: " + e.Message; }
+        finally { busy = false; }
+        if (SearchPage.Visibility == Visibility.Visible) Render(); else RenderStatus();
     }
 
     void Replace(TTask t)
@@ -793,7 +834,7 @@ public partial class MainWindow : Window
     void Back()
     {
         if (busy) return;
-        if (Changes().Count > 0) Ask("You have changes that aren't saved.", "Save", () => _ = Save(force: false, complete: false), "Discard", ShowSearch);
+        if (Changes().Count > 0) _ = Save(force: false, complete: false);   // leaving saves; the status line offers undo
         else ShowSearch();
     }
 
