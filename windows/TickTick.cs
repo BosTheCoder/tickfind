@@ -248,7 +248,7 @@ public class TickTick
         (string?)t["kind"] ?? "TEXT", (int?)t["priority"] ?? 0,
         t["tags"]?.AsArray().Select(x => (string)x!).ToArray() ?? [],
         t["items"]?.AsArray().Select(x => (string?)x?["title"] ?? "").ToArray() ?? [],
-        Date(t["dueDate"]), Date(t["modifiedTime"]) ?? DateTimeOffset.MinValue, Date(t["createdTime"]) ?? DateTimeOffset.MinValue, list);
+        Date(t["dueDate"]), Date(t["modifiedTime"]) ?? DateTimeOffset.MinValue, Date(t["createdTime"]) ?? DateTimeOffset.MinValue, list, (string?)t["etag"] ?? "");
 
     /// TickTick writes offsets as +0000, which DateTimeOffset won't parse without the colon.
     public static DateTimeOffset? Date(JsonNode? n)

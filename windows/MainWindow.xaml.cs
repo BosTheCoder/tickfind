@@ -198,6 +198,7 @@ public partial class MainWindow : Window
         try
         {
             var (fresh, names, failed) = await tt.Sync(s.ArchivedLists);
+            fresh = Search.KeepEdits(fresh, tasks, DateTimeOffset.Now);
             // A list that couldn't be read keeps its old tasks, and the index stays due for a sync, so nothing vanishes from search.
             fresh.AddRange(tasks.Where(t => failed.Contains(t.List)));
             (tasks, lists, synced) = (fresh, names, failed.Count == 0 ? DateTime.Now : synced);
@@ -765,7 +766,7 @@ public partial class MainWindow : Window
                     }
                 }
                 var saved = await tt.Update(t.Id, projectId, changes);
-                Replace(TickTick.Parse(saved, t.List));
+                Replace(TickTick.Parse(saved, t.List) with { Modified = DateTimeOffset.Now });
                 loaded = saved;   // if completing fails next, a retry compares against this version
             }
             if (complete)

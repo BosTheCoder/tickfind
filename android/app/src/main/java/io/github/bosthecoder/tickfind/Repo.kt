@@ -44,8 +44,9 @@ object Repo {
                 synchronized(lock) {
                     // A list that couldn't be read keeps its old tasks, and the index stays due for a sync, so nothing vanishes from search.
                     val old = index(ctx)
-                    index = if (r.failed.isEmpty()) Store.Index(r.tasks, r.lists, System.currentTimeMillis())
-                        else Store.Index(r.tasks + old.tasks.filter { it.list in r.failed }, r.lists, old.synced)
+                    val fresh = Search.keepEdits(r.tasks, old.tasks, System.currentTimeMillis())
+                    index = if (r.failed.isEmpty()) Store.Index(fresh, r.lists, System.currentTimeMillis())
+                        else Store.Index(fresh + old.tasks.filter { it.list in r.failed }, r.lists, old.synced)
                 }
                 persist(ctx)
                 error = if (r.failed.isEmpty()) null else "Couldn't read ${r.failed.joinToString()}"

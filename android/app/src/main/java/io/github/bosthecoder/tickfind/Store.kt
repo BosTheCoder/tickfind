@@ -93,12 +93,12 @@ class Store(ctx: Context) {
 
     private fun toJson(t: TTask) = JSONObject().put("id", t.id).put("projectId", t.projectId).put("title", t.title).put("content", t.content)
         .put("kind", t.kind).put("priority", t.priority).put("tags", JSONArray(t.tags)).put("items", JSONArray(t.items))
-        .put("due", t.due ?: JSONObject.NULL).put("modified", t.modified).put("created", t.created).put("list", t.list)
+        .put("due", t.due ?: JSONObject.NULL).put("modified", t.modified).put("created", t.created).put("list", t.list).put("etag", t.etag)
 
     private fun fromJson(j: JSONObject): TTask {
         fun strings(k: String) = j.getJSONArray(k).let { a -> (0 until a.length()).map { a.getString(it) } }
         return TTask(j.getString("id"), j.getString("projectId"), j.getString("title"), j.getString("content"), j.getString("kind"),
             j.getInt("priority"), strings("tags"), strings("items"), if (j.isNull("due")) null else j.getLong("due"),
-            j.getLong("modified"), j.getLong("created"), j.getString("list"))
+            j.getLong("modified"), j.getLong("created"), j.getString("list"), j.optString("etag"))
     }
 }

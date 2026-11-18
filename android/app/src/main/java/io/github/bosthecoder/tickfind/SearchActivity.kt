@@ -502,7 +502,7 @@ class SearchActivity : Activity() {
                 if (c.length() > 0) {
                     if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return@runCatching now }
                     saved = tt.update(t.id, projectId, c)
-                    Repo.put(this, TickTick.parse(saved!!, t.list))
+                    Repo.put(this, TickTick.parse(saved!!, t.list).copy(modified = System.currentTimeMillis()))
                 }
                 if (complete) { tt.complete(projectId, t.id); Repo.remove(this, t.id) }
                 null

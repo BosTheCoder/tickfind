@@ -36,6 +36,24 @@ public class SearchTests
     public void Lev1(string a, string b, bool close) => Assert.Equal(close, Search.Lev1(a, b));
 
     [Fact]
+    public void KeepEdits_counts_an_api_edit_and_keeps_our_own_stamp()
+    {
+        DateTimeOffset At(int h) => new(Now.AddHours(h));
+        TTask V(string id, int modified, string etag) => new(id, "p", id, "", "TEXT", 0, [], [], null, At(modified), At(0), "Inbox", etag);
+        var old = new[] { V("api", 0, "e1"), V("saved", 5, "e2"), V("app", 0, "e3"), V("same", 0, "e4"), V("new-cache", 0, "") };
+        var fresh = new List<TTask> { V("api", 0, "e1b"), V("saved", 0, "e2"), V("app", 3, "e3b"), V("same", 0, "e4"), V("new-cache", 0, "x"), V("added", 1, "e5") };
+
+        var got = Search.KeepEdits(fresh, old, At(9)).ToDictionary(t => t.Id, t => t.Modified);
+
+        Assert.Equal(At(9), got["api"]);        // etag moved, modifiedTime didn't: changed through the API since last sync
+        Assert.Equal(At(5), got["saved"]);      // stamped by our own save; the sync doesn't wind it back
+        Assert.Equal(At(3), got["app"]);        // TickTick moved modifiedTime itself: trust it
+        Assert.Equal(At(0), got["same"]);
+        Assert.Equal(At(0), got["new-cache"]);  // cache from before etags were kept: no guess
+        Assert.Equal(At(1), got["added"]);
+    }
+
+    [Fact]
     public void Snippet_centres_on_the_match()
     {
         var s = Search.Snippet(new string('x', 200) + " the Plumber came " + new string('y', 200), ["plumber"], 40);

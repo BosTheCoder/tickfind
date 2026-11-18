@@ -52,7 +52,7 @@ class TickTick(private val store: Store) {
             t.str("kind").ifEmpty { "TEXT" }, t.optInt("priority"),
             t.optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: listOf(),
             t.optJSONArray("items")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).str("title") } } ?: listOf(),
-            date(t.str("dueDate")), date(t.str("modifiedTime")) ?: 0, date(t.str("createdTime")) ?: 0, list,
+            date(t.str("dueDate")), date(t.str("modifiedTime")) ?: 0, date(t.str("createdTime")) ?: 0, list, t.str("etag"),
         )
     }
 

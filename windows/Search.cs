@@ -6,7 +6,7 @@ namespace Tickfind;
 
 /// One open task or note, as cached from TickTick. Content holds the note text (or a checklist's description).
 public record TTask(string Id, string ProjectId, string Title, string Content, string Kind, int Priority,
-    string[] Tags, string[] Items, DateTimeOffset? Due, DateTimeOffset Modified, DateTimeOffset Created, string List)
+    string[] Tags, string[] Items, DateTimeOffset? Due, DateTimeOffset Modified, DateTimeOffset Created, string List, string Etag = "")
 {
     [JsonIgnore] internal Norm N => n ??= new Norm(this);
     Norm? n;
@@ -211,6 +211,20 @@ public static class Search
             return a[(i + 1)..] == b[(i + 1)..]
                 || (i + 1 < a.Length && a[i] == b[i + 1] && a[i + 1] == b[i] && a[(i + 2)..] == b[(i + 2)..]);
         return a.Length > b.Length ? a[(i + 1)..] == b[i..] : a[i..] == b[(i + 1)..];
+    }
+
+    /// TickTick moves a task's etag, but not its modifiedTime, when it's changed through the API (Tickfind's own saves, Claude's edits).
+    /// So a task whose etag changed while modifiedTime stayed put counts as changed [now], and a time stamped here is never lost.
+    public static List<TTask> KeepEdits(List<TTask> fresh, IEnumerable<TTask> old, DateTimeOffset now)
+    {
+        var prev = new Dictionary<string, TTask>();
+        foreach (var t in old) prev.TryAdd(t.Id, t);
+        return fresh.Select(t =>
+        {
+            var m = !prev.TryGetValue(t.Id, out var o) || t.Modified > o.Modified ? t.Modified
+                : !string.IsNullOrEmpty(o.Etag) && o.Etag != t.Etag ? now : o.Modified;
+            return m == t.Modified ? t : t with { Modified = m };
+        }).ToList();
     }
 
     static IEnumerable<Hit> Order(List<Hit> hits, Sort sort) => sort switch

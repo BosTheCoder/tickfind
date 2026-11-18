@@ -54,6 +54,14 @@ class SearchTest {
         assertEquals(listOf("🏠Property" to 2), Search.lists(tasks, "is:list PROPERTY"))
     }
 
+    @Test fun keepEdits_counts_an_api_edit_and_keeps_our_own_stamp() {
+        fun v(id: String, modified: Long, etag: String) = TTask(id, "p", id, "", "TEXT", 0, listOf(), listOf(), null, modified, 0, "Inbox", etag)
+        val old = listOf(v("api", 0, "e1"), v("saved", 5, "e2"), v("app", 0, "e3"), v("same", 0, "e4"), v("new-cache", 0, ""))
+        val fresh = listOf(v("api", 0, "e1b"), v("saved", 0, "e2"), v("app", 3, "e3b"), v("same", 0, "e4"), v("new-cache", 0, "x"), v("added", 1, "e5"))
+        val got = Search.keepEdits(fresh, old, 9).associate { it.id to it.modified }
+        assertEquals(mapOf("api" to 9L, "saved" to 5L, "app" to 3L, "same" to 0L, "new-cache" to 0L, "added" to 1L), got)
+    }
+
     @Test fun lev1() {
         for ((a, ok) in listOf("glance" to true, "glnace" to true, "glace" to true, "glancce" to true, "glence" to true, "gnalce" to false, "gl" to false))
             assertEquals(a, ok, Search.lev1(a, "glance"))

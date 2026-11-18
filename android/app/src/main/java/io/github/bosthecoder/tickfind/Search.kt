@@ -9,6 +9,7 @@ import java.time.ZoneId
 data class TTask(
     val id: String, val projectId: String, val title: String, val content: String, val kind: String, val priority: Int,
     val tags: List<String>, val items: List<String>, val due: Long?, val modified: Long, val created: Long, val list: String,
+    val etag: String = "",
 ) {
     /** Lower-cased, accent-free copies of the searchable fields, built once. */
     internal val n by lazy { Norm(this) }
@@ -183,6 +184,17 @@ object Search {
             return a.substring(i + 1) == b.substring(i + 1) ||
                 (i + 1 < a.length && a[i] == b[i + 1] && a[i + 1] == b[i] && a.substring(i + 2) == b.substring(i + 2))
         return if (a.length > b.length) a.substring(i + 1) == b.substring(i) else a.substring(i) == b.substring(i + 1)
+    }
+
+    /** TickTick moves a task's etag, but not its modifiedTime, when it's changed through the API (Tickfind's own saves, Claude's edits).
+     *  So a task whose etag changed while modifiedTime stayed put counts as changed [now], and a time stamped here is never lost. */
+    fun keepEdits(fresh: List<TTask>, old: List<TTask>, now: Long): List<TTask> {
+        val prev = old.associateBy { it.id }
+        return fresh.map { t ->
+            val o = prev[t.id]
+            val m = when { o == null || t.modified > o.modified -> t.modified; o.etag.isNotEmpty() && o.etag != t.etag -> now; else -> o.modified }
+            if (m == t.modified) t else t.copy(modified = m)
+        }
     }
 
     private fun order(hits: List<Hit>, sort: Sort): List<Hit> = when (sort) {
