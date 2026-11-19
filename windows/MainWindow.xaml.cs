@@ -43,7 +43,13 @@ public partial class MainWindow : Window
     int editPriority;
     List<JsonObject> editItems = new();
     Action? bannerA, bannerB;
-    // The last save, as it was before, so the status line can put it back
+    JsonObject? opened;                         // the task as it was when the editor opened, for the undo after you leave
+    readonly List<JsonObject> history = new();  // the version before each save, newest last, for Undo in the editor
+    string? lastSent;                           // so a field TickTick tidies up isn't sent again and again
+    DateTime lastSave;
+    bool leaving, restoring;                    // leaving: Back was pressed during a save; restoring: fields being set, not typed
+    readonly DispatcherTimer autosave = new();
+    // After you leave, the task as it was when you opened it, so the status line can put it back
     record Undo(TTask Task, string ProjectId, JsonObject Before, DateTime At);
     Undo? undo;
     bool UndoLive => undo != null && DateTime.Now - undo.At < TimeSpan.FromMinutes(10);
@@ -81,7 +87,7 @@ public partial class MainWindow : Window
         {
             if (IsVisible) return;
             if (resized && !demo) { resized = false; Persist(); }
-            if (EditPage.Visibility == Visibility.Visible && Changes().Count > 0) _ = Save(force: false, complete: false);   // closing saves
+            if (EditPage.Visibility == Visibility.Visible && Changes().Count > 0) Back();   // closing saves
         };
         GearButton.MouseLeftButtonUp += (_, _) => ShowMenu();
         ExpandButton.MouseLeftButtonUp += (_, _) => ToggleExpanded();
@@ -95,7 +101,11 @@ public partial class MainWindow : Window
         };
         OpenButton.Click += (_, _) => { if (editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text); };   // hiding saves any edits
         CopyButton.Click += (_, _) => CopyLink();
-        SaveButton.Click += async (_, _) => await Save(force: false, complete: false);
+        SaveButton.Click += (_, _) => Back();
+        UndoButton.Click += (_, _) => UndoStep();
+        autosave.Tick += (_, _) => { autosave.Stop(); _ = AutoSave(); };
+        EditTitle.TextChanged += (_, _) => Touch();
+        EditContent.TextChanged += (_, _) => Touch();
         CompleteButton.Click += async (_, _) => await Save(force: false, complete: true);
         BannerA.Click += (_, _) => { Banner.Visibility = Visibility.Collapsed; bannerA?.Invoke(); };
         BannerB.Click += (_, _) => { Banner.Visibility = Visibility.Collapsed; bannerB?.Invoke(); };
@@ -106,6 +116,7 @@ public partial class MainWindow : Window
             editItems.Add(new JsonObject { ["title"] = title, ["status"] = 0 });
             AddItem.Clear();
             RenderItems();
+            Touch();
             e.Handled = true;
         };
 
@@ -139,7 +150,7 @@ public partial class MainWindow : Window
             s = Settings.Load();
             RegisterHotkey();
         }
-        if (EditPage.Visibility == Visibility.Visible && Changes().Count == 0) ShowSearch();
+        if (EditPage.Visibility == Visibility.Visible && Changes().Count == 0) Leave();
         Width = s.Width;
         SizeToContent = SizeToContent.Height;   // dragging the top or bottom edge turns it off
         var wa = Native.WorkAreaAtCursor(this);
@@ -525,7 +536,7 @@ public partial class MainWindow : Window
         if (EditPage.Visibility == Visibility.Visible)
         {
             if (e.Key == Key.Escape) Back();
-            else if (ctrl && e.Key == Key.S) _ = Save(force: false, complete: false);
+            else if (ctrl && e.Key == Key.S) { autosave.Stop(); _ = AutoSave(); }
             else if (ctrl && e.Key == Key.Enter && editing != null) OpenInTickTick(editing.ProjectId, editing.Id, EditTitle.Text);
             else if (ctrl && e.Key == Key.L) CopyLink();
             else return;
@@ -600,7 +611,9 @@ public partial class MainWindow : Window
     void OpenEditor(TTask t, JsonObject? fresh = null)
     {
         editing = t;
-        loaded = null;
+        loaded = opened = null;
+        history.Clear();
+        (lastSent, leaving) = (null, false);
         editItems = new();
         EditList.Text = t.List;
         EditTitle.Text = t.Title;
@@ -662,21 +675,33 @@ public partial class MainWindow : Window
     {
         if (editing == null || (string?)j["id"] != editing.Id) return;
         loaded = j;
-        var checklist = (string?)j["kind"] == "CHECKLIST";
-        EditTitle.Text = (string?)j["title"] ?? "";
-        EditContent.Text = (string?)j[checklist ? "desc" : "content"] ?? "";
-        editPriority = (int?)j["priority"] ?? 0;
-        editItems = j["items"]?.AsArray().OfType<JsonObject>().Select(x => (JsonObject)x.DeepClone()).ToList() ?? new();
-        AddItemRow.Visibility = checklist ? Visibility.Visible : Visibility.Collapsed;
+        opened ??= j;
+        Show(j);
+        AddItemRow.Visibility = (string?)j["kind"] == "CHECKLIST" ? Visibility.Visible : Visibility.Collapsed;
         CompleteButton.Visibility = (int?)j["status"] is 0 or null ? Visibility.Visible : Visibility.Collapsed;
-        RenderPriority();
-        RenderItems();
         Editable(true);
         EditStatus.Text = (int?)j["status"] is 0 or null ? "" : "Completed";
         EditContent.Focus();   // caret and scroll at the top: the newest notes go first
         EditContent.CaretIndex = 0;
         EditScroll.ScrollToTop();
     }
+
+    /// Puts [j]'s title, notes, priority and items in the editor, as if typed but not counted as typing.
+    void Show(JsonObject j)
+    {
+        restoring = true;
+        EditTitle.Text = (string?)j["title"] ?? "";
+        EditContent.Text = (string?)j[(string?)j["kind"] == "CHECKLIST" ? "desc" : "content"] ?? "";
+        editPriority = (int?)j["priority"] ?? 0;
+        editItems = j["items"]?.AsArray().OfType<JsonObject>().Select(x => (JsonObject)x.DeepClone()).ToList() ?? new();
+        AddItem.Clear();
+        restoring = false;
+        RenderPriority();
+        RenderItems();
+        RenderUndo();
+    }
+
+    void RenderUndo() => UndoButton.IsEnabled = !busy && loaded != null && (history.Count > 0 || Changes().Count > 0);
 
     void Editable(bool on)
     {
@@ -696,7 +721,7 @@ public partial class MainWindow : Window
             content.Children.Add(new TextBlock { Text = label, FontSize = 12 });
             var b = new Button { Content = content, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 6, 0),
                 Background = p == editPriority ? new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF)) : new SolidColorBrush(Color.FromArgb(0x16, 0xFF, 0xFF, 0xFF)) };
-            b.Click += (_, _) => { editPriority = p; RenderPriority(); };
+            b.Click += (_, _) => { editPriority = p; RenderPriority(); Touch(); };
             PriorityRow.Children.Add(b);
         }
     }
@@ -712,15 +737,16 @@ public partial class MainWindow : Window
                 IsChecked = done, Foreground = Foreground, Margin = new Thickness(2, 3, 0, 3), VerticalContentAlignment = VerticalAlignment.Center,
                 Content = new TextBlock { Text = (string?)item["title"] ?? "", TextWrapping = TextWrapping.Wrap, Opacity = done ? 0.5 : 1, TextDecorations = done ? TextDecorations.Strikethrough : null },
             };
-            c.Click += (_, _) => { item["status"] = c.IsChecked == true ? 1 : 0; RenderItems(); };
+            c.Click += (_, _) => { item["status"] = c.IsChecked == true ? 1 : 0; RenderItems(); Touch(); };
             ItemsPanel.Children.Add(c);
         }
     }
 
     static string Lf(string? t) => (t ?? "").Replace("\r\n", "\n");
 
-    /// Only the fields you changed, in the shape update_task wants. An item typed but not yet added with Enter counts too.
-    JsonObject Changes()
+    /// Only the fields you changed, in the shape update_task wants. With [pending], an item typed but not yet added with Enter counts too
+    /// (not while typing: it would be saved half-written and then again).
+    JsonObject Changes(bool pending = true)
     {
         var c = new JsonObject();
         if (loaded == null) return c;
@@ -731,8 +757,8 @@ public partial class MainWindow : Window
         if (editPriority != ((int?)loaded["priority"] ?? 0)) c["priority"] = editPriority;
         if (checklist)
         {
-            var pending = AddItem.Text.Trim() is { Length: > 0 } t ? [new JsonObject { ["title"] = t, ["status"] = 0 }] : Array.Empty<JsonObject>();
-            var items = new JsonArray(editItems.Concat(pending).Select((x, i) =>
+            var typed = pending && AddItem.Text.Trim() is { Length: > 0 } t ? [new JsonObject { ["title"] = t, ["status"] = 0 }] : Array.Empty<JsonObject>();
+            var items = new JsonArray(editItems.Concat(typed).Select((x, i) =>
             {
                 var y = (JsonObject)x.DeepClone();
                 y["sortOrder"] ??= i;
@@ -743,71 +769,133 @@ public partial class MainWindow : Window
         return c;
     }
 
-    /// Saves what you changed and, with [complete], then marks the task done. Unless [force], it first checks the task
-    /// hasn't changed in TickTick since it loaded (TickTick accepts a stale etag) and asks if it has.
-    /// While it runs, Back, Esc and a second Save do nothing, so it can only ever act on the task it started with.
+    /// Something in the editor changed: save once typing pauses for 3 seconds, but not more than every 15
+    /// (TickTick allows 300 calls per 5 minutes across all his tools, and each save is two).
+    void Touch()
+    {
+        if (restoring || loaded == null || demo) return;
+        autosave.Stop();
+        var wait = lastSave + TimeSpan.FromSeconds(15) - DateTime.Now;
+        autosave.Interval = wait > TimeSpan.FromSeconds(3) ? wait : TimeSpan.FromSeconds(3);
+        autosave.Start();
+        RenderUndo();
+    }
+
+    /// Saves what changed and stays in the editor. With [record] off (an undo step), the step itself isn't added to the history.
+    async Task AutoSave(bool force = false, bool record = true)
+    {
+        if (busy || editing == null || loaded == null || demo || Banner.Visibility == Visibility.Visible) return;
+        var c = Changes(pending: false);
+        if (c.Count == 0 || (!force && c.ToJsonString() == lastSent)) return;
+        busy = true;
+        RenderUndo();
+        EditStatus.Text = "Saving…";
+        try { EditStatus.Text = await Push(editing, loaded, c, force, record, () => _ = AutoSave(force: true, record)) ? "Saved" : ""; }
+        catch (NeedsSignIn) { EditStatus.Text = "TickTick signed you out. Copy your text, then go back and sign in."; }
+        catch (Exception e) { EditStatus.Text = "Didn't save: " + e.Message; }
+        finally { busy = false; }
+        RenderUndo();
+        if (leaving) { leaving = false; Back(); }
+        else if (Changes(pending: false).Count > 0) Touch();
+    }
+
+    /// Sends [c] for [t]. Unless [force], first checks TickTick still has [l] (it accepts a stale etag) and, if not,
+    /// asks, with [mine] to save over theirs; returns false then.
+    async Task<bool> Push(TTask t, JsonObject l, JsonObject c, bool force, bool record, Action mine)
+    {
+        lastSave = DateTime.Now;
+        if (!force)
+        {
+            var now = await tt.Get(t.Id);
+            if ((string?)now["etag"] != (string?)l["etag"])
+            {
+                Ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
+                    "Save mine", mine, "Show theirs", () => Fill(now));
+                return false;
+            }
+        }
+        var sent = c.ToJsonString();
+        var saved = await tt.Update(t.Id, (string)l["projectId"]!, c);
+        lastSent = sent;
+        Replace(TickTick.Parse(saved, t.List) with { Modified = DateTimeOffset.Now });
+        if (editing != t) return true;
+        if (record) history.Add(l);
+        loaded = saved;
+        // Items untouched since take TickTick's copy (new ones get ids), or they'd look changed forever.
+        if (c["items"] is JsonArray items && Changes(pending: false)["items"]?.ToJsonString() == items.ToJsonString())
+        {
+            editItems = saved["items"]?.AsArray().OfType<JsonObject>().Select(x => (JsonObject)x.DeepClone()).ToList() ?? new();
+            RenderItems();
+        }
+        return true;
+    }
+
+    /// Undo in the editor: first drops what isn't saved yet, then steps back one save at a time, saving each step.
+    void UndoStep()
+    {
+        if (busy || loaded == null) return;
+        autosave.Stop();
+        if (Changes().Count > 0) { Show(loaded); EditStatus.Text = "Saved"; return; }
+        if (history.Count == 0) return;
+        var back = history[^1];
+        history.RemoveAt(history.Count - 1);
+        Show(back);
+        _ = AutoSave(record: false);
+    }
+
+    /// Done, Back, Esc or closing: saves what's left and goes back to the matches. With [complete], marks it done instead.
+    /// While it runs, a second Save or Complete does nothing, so it can only ever act on the task it started with.
     async Task Save(bool force, bool complete)
     {
         if (busy || editing == null || loaded == null) return;
-        var (t, l) = (editing, loaded);
+        var t = editing;
         var changes = Changes();
-        var projectId = (string)l["projectId"]!;
-        if (changes.Count == 0 && !complete) { ShowSearch(); return; }
+        if (changes.Count == 0 && !complete) { Leave(); return; }
         if (demo)
         {
             if (complete) { tasks.RemoveAll(x => x.Id == t.Id); ShowSearch(); }
             else Ask("This is the demo, so nothing was saved.", "OK", ShowSearch, "Keep editing", () => { });
             return;
         }
+        autosave.Stop();
         busy = true;
         Editable(false);
         Banner.Visibility = Visibility.Collapsed;
         EditStatus.Text = complete ? "Completing…" : "Saving…";
         try
         {
-            if (changes.Count > 0)
+            if (changes.Count > 0 && !await Push(t, loaded, changes, force, record: true, () => _ = Save(force: true, complete)))
             {
-                if (!force)
-                {
-                    var now = await tt.Get(t.Id);
-                    if ((string?)now["etag"] != (string?)l["etag"])
-                    {
-                        Editable(true);
-                        EditStatus.Text = "";
-                        Ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
-                            "Save mine", () => _ = Save(force: true, complete), "Show theirs", () => Fill(now));
-                        return;
-                    }
-                }
-                var saved = await tt.Update(t.Id, projectId, changes);
-                Replace(TickTick.Parse(saved, t.List) with { Modified = DateTimeOffset.Now });
-                loaded = saved;   // if completing fails next, a retry compares against this version
-                undo = complete ? null : new(t, projectId, Before(l, changes), DateTime.Now);
+                Editable(true);
+                EditStatus.Text = "";
+                return;
             }
             if (complete)
             {
-                await tt.Complete(projectId, t.Id);
+                await tt.Complete((string)loaded!["projectId"]!, t.Id);
                 tasks.RemoveAll(x => x.Id == t.Id);
                 SaveCache();
+                note = $"Completed “{t.Title}”";
+                ShowSearch();
             }
-            note = complete ? $"Completed “{t.Title}”" : null;   // a save shows its undo instead
-            ShowSearch();
+            else Leave();
         }
         catch (NeedsSignIn) { Editable(true); EditStatus.Text = "TickTick signed you out. Copy your text, then go back and sign in."; }
         catch (Exception e) { Editable(true); EditStatus.Text = (complete ? "Didn't complete: " : "Didn't save: ") + e.Message; }
         finally { busy = false; }
     }
 
-    /// The fields [changes] touched, as they were in [l], to send back on undo.
-    static JsonObject Before(JsonObject l, JsonObject changes)
+    /// The fields the editor changes, as they are in [j], to send back on undo.
+    static JsonObject Fields(JsonObject j)
     {
-        var b = new JsonObject();
-        foreach (var (k, _) in changes)
-            b[k] = l[k]?.DeepClone() ?? (k switch { "items" => new JsonArray(), "priority" => JsonValue.Create(0), _ => JsonValue.Create("") });
-        return b;
+        var checklist = (string?)j["kind"] == "CHECKLIST";
+        var f = new JsonObject { ["title"] = (string?)j["title"] ?? "", ["priority"] = (int?)j["priority"] ?? 0 };
+        f[checklist ? "desc" : "content"] = (string?)j[checklist ? "desc" : "content"] ?? "";
+        if (checklist) f["items"] = j["items"]?.DeepClone() ?? new JsonArray();
+        return f;
     }
 
-    /// Puts back the fields the last save changed.
+    /// Puts back what the editor saved, as it was when you opened it.
     async Task UndoSave()
     {
         if (busy || undo is not { } u) return;
@@ -833,9 +921,17 @@ public partial class MainWindow : Window
 
     void Back()
     {
-        if (busy) return;
-        if (Changes().Count > 0) _ = Save(force: false, complete: false);   // leaving saves; the status line offers undo
-        else ShowSearch();
+        if (busy) { leaving = true; return; }   // a save is on its way: go once it lands
+        if (Changes().Count > 0) _ = Save(force: false, complete: false);
+        else Leave();
+    }
+
+    /// Back to the matches. If anything was saved, the status line offers to put the task back as it was when you opened it.
+    void Leave()
+    {
+        if (editing != null && opened != null && history.Count > 0)
+            (undo, note) = (new(editing, (string)opened["projectId"]!, Fields(opened), DateTime.Now), null);
+        ShowSearch();
     }
 
     void Ask(string text, string a, Action onA, string b, Action onB)
@@ -849,8 +945,11 @@ public partial class MainWindow : Window
 
     void ShowSearch()
     {
+        autosave.Stop();
         editing = null;
-        loaded = null;
+        loaded = opened = null;
+        history.Clear();
+        (lastSent, leaving) = (null, false);
         Banner.Visibility = Visibility.Collapsed;
         EditPage.Visibility = Visibility.Collapsed;
         ViewsPage.Visibility = Visibility.Collapsed;

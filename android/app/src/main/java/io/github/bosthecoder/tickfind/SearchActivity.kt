@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Paint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.InputType
 import android.text.TextUtils
@@ -69,7 +71,16 @@ class SearchActivity : Activity() {
     private var editItems = mutableListOf<JSONObject>()
     /** A save or completion is on its way to TickTick: Back and a second Save wait, so it only ever acts on the task it started with. */
     private var busy = false
-    /** The last save, as it was before, so the status line can put it back. */
+    private lateinit var undoButton: Button
+    private var opened: JSONObject? = null                 // the task as it was when the editor opened, for the undo after you leave
+    private val history = mutableListOf<JSONObject>()      // the version before each save, newest last, for Undo in the editor
+    private var lastSent: String? = null                   // so a field TickTick tidies up isn't sent again and again
+    private var lastSave = 0L
+    private var leaving = false                            // Back was pressed during a save: go once it lands
+    private var restoring = false                          // fields being set, not typed
+    private val handler = Handler(Looper.getMainLooper())
+    private val autosaveRun = Runnable { autoSave() }
+    /** After you leave, the task as it was when you opened it, so the status line can put it back. */
     private class Undo(val task: TTask, val projectId: String, val before: JSONObject, val at: Long)
     private var undo: Undo? = null
     private fun undoLive() = undo.let { it != null && System.currentTimeMillis() - it.at < 10 * 60_000L }
@@ -90,10 +101,11 @@ class SearchActivity : Activity() {
 
     override fun onDestroy() { Repo.unlisten(onSync); super.onDestroy() }
 
-    /** Home, another app, the screen going off: whatever you typed is saved. */
+    /** Home, another app, the screen going off: whatever you typed is saved now, and the editor stays open. */
     override fun onStop() {
         super.onStop()
-        if (editing != null && changes().length() > 0) save(force = false, complete = false)
+        handler.removeCallbacks(autosaveRun)
+        autoSave()
     }
 
     /** The manifest keeps rotation, dark mode, font size and resizing from recreating this (which would lose the editor). */
@@ -102,7 +114,7 @@ class SearchActivity : Activity() {
     /** Opened again (bubble, tile, icon): back to an empty box on the first view, unless there are unsaved edits. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (editing != null && changes().length() == 0) showSearch()
+        if (editing != null && changes().length() == 0) leave()
         summon()
     }
 
@@ -359,6 +371,7 @@ class SearchActivity : Activity() {
         editPage.addView(top)
         editTitle = field().apply { textSize = 17f; typeface = android.graphics.Typeface.DEFAULT_BOLD; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE }
         editPage.addView(editTitle, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
+        editTitle.addTextChangedListener(typing)
         priorityRow = LinearLayout(this)
         editPage.addView(priorityRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -367,12 +380,13 @@ class SearchActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         }
         body.addView(editContent)
+        editContent.addTextChangedListener(typing)
         itemsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         body.addView(itemsBox, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6) })
         addItem = field(single = true).apply {
             hint = "Add an item"; imeOptions = EditorInfo.IME_ACTION_DONE
             setOnEditorActionListener { _, _, _ ->
-                text.toString().trim().takeIf { it.isNotEmpty() }?.let { editItems += JSONObject().put("title", it).put("status", 0); setText(""); renderItems() }
+                text.toString().trim().takeIf { it.isNotEmpty() }?.let { editItems += JSONObject().put("title", it).put("status", 0); setText(""); renderItems(); touch() }
                 true
             }
         }
@@ -388,13 +402,21 @@ class SearchActivity : Activity() {
         bottom.addView(completeButton)
         editStatus = text("", 12f, DIM).apply { maxLines = 2; setPadding(dp(10), 0, dp(10), 0) }
         bottom.addView(editStatus, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        saveButton = button("Save", BLUE) { save(force = false, complete = false) }
+        undoButton = button("Undo", 0x22FFFFFF) { undoStep() }
+        bottom.addView(undoButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = dp(8) })
+        saveButton = button("Done", BLUE) { back() }   // it saves as you type; Done goes back
         bottom.addView(saveButton)
         editPage.addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(10) })
     }
 
+    private val typing = object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        override fun afterTextChanged(s: Editable?) { touch() }
+    }
+
     private fun openEditor(t: TTask, fresh: JSONObject? = null) {
-        editing = t; loaded = null; editItems = mutableListOf()
+        editing = t; loaded = null; opened = null; history.clear(); lastSent = null; leaving = false; editItems = mutableListOf()
         editList.text = t.list; editTitle.setText(t.title); editContent.setText(t.content); editPriority = t.priority
         itemsBox.removeAllViews(); addItem.visibility = View.GONE; banner.visibility = View.GONE; completeButton.visibility = View.VISIBLE
         renderPriority(); editable(false)
@@ -428,17 +450,34 @@ class SearchActivity : Activity() {
     private fun fill(j: JSONObject) {
         if (editing?.id != j.optString("id")) return
         loaded = j
-        val checklist = j.str("kind") == "CHECKLIST"
-        editTitle.setText(j.str("title"))
-        editContent.setText(j.str(if (checklist) "desc" else "content"))
-        editPriority = j.optInt("priority")
-        editItems = j.optJSONArray("items")?.let { a -> (0 until a.length()).map { JSONObject(a.getJSONObject(it).toString()) }.toMutableList() } ?: mutableListOf()
-        addItem.visibility = if (checklist) View.VISIBLE else View.GONE
+        if (opened == null) opened = j
+        show(j)
+        addItem.visibility = if (j.str("kind") == "CHECKLIST") View.VISIBLE else View.GONE
         val open = j.optInt("status") == 0
         completeButton.visibility = if (open) View.VISIBLE else View.GONE
         editStatus.text = if (open) "" else "Completed"
-        renderPriority(); renderItems(); editable(true)
+        editable(true)
         editContent.requestFocus(); editContent.setSelection(0)   // at the top: the newest notes go first
+    }
+
+    /** Puts [j]'s title, notes, priority and items in the editor, as if typed but not counted as typing. */
+    private fun show(j: JSONObject) {
+        restoring = true
+        editTitle.setText(j.str("title"))
+        editContent.setText(j.str(if (j.str("kind") == "CHECKLIST") "desc" else "content"))
+        editPriority = j.optInt("priority")
+        editItems = items(j)
+        addItem.setText("")
+        restoring = false
+        renderPriority(); renderItems(); renderUndo()
+    }
+
+    private fun items(j: JSONObject) =
+        j.optJSONArray("items")?.let { a -> (0 until a.length()).map { JSONObject(a.getJSONObject(it).toString()) }.toMutableList() } ?: mutableListOf()
+
+    private fun renderUndo() {
+        val on = !busy && loaded != null && (history.isNotEmpty() || changes().length() > 0)
+        undoButton.isEnabled = on; undoButton.alpha = if (on) 1f else 0.4f
     }
 
     private fun editable(on: Boolean) {
@@ -454,7 +493,7 @@ class SearchActivity : Activity() {
                 val s = android.text.SpannableString(text); s.setSpan(android.text.style.ForegroundColorSpan(priorityColor(p)), 0, 1, 0); text = s
                 background = rounded(if (p == editPriority) 0x55FFFFFF else 0x16FFFFFF, dp(8).toFloat())
                 setPadding(dp(10), dp(6), dp(10), dp(6))
-                setOnClickListener { if (loaded != null) { editPriority = p; renderPriority() } }
+                setOnClickListener { if (loaded != null) { editPriority = p; renderPriority(); touch() } }
             }
             priorityRow.addView(chip, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginEnd = dp(6) })
         }
@@ -468,13 +507,14 @@ class SearchActivity : Activity() {
                 text = item.str("title"); setTextColor(if (done) FAINT else TEXT); textSize = 15f; isChecked = done
                 paintFlags = if (done) paintFlags or Paint.STRIKE_THRU_TEXT_FLAG else paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
                 buttonTintList = ColorStateList.valueOf(BLUE)
-                setOnClickListener { item.put("status", if (isChecked) 1 else 0); renderItems() }
+                setOnClickListener { item.put("status", if (isChecked) 1 else 0); renderItems(); touch() }
             })
         }
     }
 
-    /** Only the fields you changed, in the shape update_task wants. An item typed but not yet added counts too. */
-    private fun changes(): JSONObject {
+    /** Only the fields you changed, in the shape update_task wants. With [pending], an item typed but not yet added counts too
+     *  (not while typing: it would be saved half-written and then again). */
+    private fun changes(pending: Boolean = true): JSONObject {
         val c = JSONObject()
         val l = loaded ?: return c
         val checklist = l.str("kind") == "CHECKLIST"
@@ -483,51 +523,111 @@ class SearchActivity : Activity() {
         if (editContent.text.toString() != l.str(field)) c.put(field, editContent.text.toString())
         if (editPriority != l.optInt("priority")) c.put("priority", editPriority)
         if (checklist) {
-            val pending = addItem.text.toString().trim().takeIf { it.isNotEmpty() }?.let { listOf(JSONObject().put("title", it).put("status", 0)) } ?: listOf()
-            val items = JSONArray((editItems + pending).mapIndexed { i, x -> JSONObject(x.toString()).also { if (!it.has("sortOrder")) it.put("sortOrder", i) } })
+            val typed = addItem.text.toString().trim().takeIf { pending && it.isNotEmpty() }?.let { listOf(JSONObject().put("title", it).put("status", 0)) } ?: listOf()
+            val items = JSONArray((editItems + typed).mapIndexed { i, x -> JSONObject(x.toString()).also { if (!it.has("sortOrder")) it.put("sortOrder", i) } })
             if (items.toString() != (l.optJSONArray("items") ?: JSONArray()).toString()) c.put("items", items)
         }
         return c
     }
 
-    /**
-     * Saves what you changed and, with [complete], then marks the task done. Unless [force], it first checks the task
-     * hasn't changed in TickTick since it loaded (TickTick accepts a stale etag) and asks if it has.
-     */
+    /** Something in the editor changed: save once typing pauses for 3 seconds, but not more than every 15
+     *  (TickTick allows 300 calls per 5 minutes across all his tools, and each save is two). */
+    private fun touch() {
+        if (restoring || loaded == null || Repo.demo) return
+        handler.removeCallbacks(autosaveRun)
+        handler.postDelayed(autosaveRun, maxOf(3_000L, lastSave + 15_000L - System.currentTimeMillis()))
+        renderUndo()
+    }
+
+    /** Saves what changed and stays in the editor. With [record] off (an undo step), the step itself isn't added to the history. */
+    private fun autoSave(force: Boolean = false, record: Boolean = true) {
+        val t = editing ?: return
+        val l = loaded ?: return
+        if (busy || Repo.demo || banner.visibility == View.VISIBLE) return
+        val c = changes(pending = false)
+        if (c.length() == 0 || (!force && c.toString() == lastSent)) return
+        busy = true; lastSave = System.currentTimeMillis(); renderUndo()
+        editStatus.text = "Saving…"
+        thread {
+            val r = runCatching { push(t, l, c, force) }
+            runOnUiThread {
+                busy = false
+                r.onSuccess { editStatus.text = if (landed(t, l, c, it, record) { autoSave(force = true, record) }) "Saved" else "" }
+                    .onFailure { editStatus.text = if (it is NeedsSignIn) "TickTick signed you out. Copy your text, then sign in again in Settings." else "Didn't save: ${it.message}" }
+                renderUndo()
+                if (leaving) { leaving = false; back() } else if (changes(pending = false).length() > 0) touch()
+            }
+        }
+    }
+
+    private class Sent(val theirs: JSONObject?, val saved: JSONObject?)
+
+    /** Off the main thread: sends [c] for [t], unless [force] is off and TickTick no longer has [l] (it accepts a stale etag). */
+    private fun push(t: TTask, l: JSONObject, c: JSONObject, force: Boolean): Sent {
+        if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return Sent(now, null) }
+        val saved = tt.update(t.id, l.getString("projectId"), JSONObject(c.toString()))
+        Repo.put(this, TickTick.parse(saved, t.list).copy(modified = System.currentTimeMillis()))
+        return Sent(null, saved)
+    }
+
+    /** Back on the main thread after [push]: asks about a conflict (with [mine] to save over theirs) and returns false, or takes the saved version. */
+    private fun landed(t: TTask, l: JSONObject, c: JSONObject, s: Sent, record: Boolean, mine: () -> Unit): Boolean {
+        s.theirs?.let { theirs ->
+            ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
+                "Save mine", mine, "Show theirs") { fill(theirs) }
+            return false
+        }
+        lastSent = c.toString()
+        if (editing !== t) return true
+        if (record) history += l
+        loaded = s.saved
+        // Items untouched since take TickTick's copy (new ones get ids), or they'd look changed forever.
+        val sent = c.optJSONArray("items")
+        if (sent != null && changes(pending = false).optJSONArray("items")?.toString() == sent.toString()) { editItems = items(s.saved!!); renderItems() }
+        return true
+    }
+
+    /** Undo in the editor: first drops what isn't saved yet, then steps back one save at a time, saving each step. */
+    private fun undoStep() {
+        if (busy) return
+        val l = loaded ?: return
+        handler.removeCallbacks(autosaveRun)
+        if (changes().length() > 0) { show(l); editStatus.text = "Saved"; return }
+        val back = history.removeLastOrNull() ?: return
+        show(back)
+        autoSave(record = false)
+    }
+
+    /** Done, Back or Esc: saves what's left and goes back to the matches. With [complete], marks it done instead. */
     private fun save(force: Boolean, complete: Boolean) {
         if (busy) return
         val t = editing ?: return
         val l = loaded ?: return
         val c = changes()
-        if (c.length() == 0 && !complete) { showSearch(); return }
+        if (c.length() == 0 && !complete) { leave(); return }
         if (Repo.demo) {
             if (complete) { Repo.remove(this, t.id); showSearch() } else ask("This is the demo, so nothing was saved.", "OK", ::showSearch, "Keep editing") {}
             return
         }
+        handler.removeCallbacks(autosaveRun)
         val projectId = l.getString("projectId")
-        busy = true; editable(false); banner.visibility = View.GONE
+        busy = true; lastSave = System.currentTimeMillis(); editable(false); banner.visibility = View.GONE
         editStatus.text = if (complete) "Completing…" else "Saving…"
         thread {
-            var saved: JSONObject? = null
+            var sent: Sent? = null
             val r = runCatching {
-                if (c.length() > 0) {
-                    if (!force) tt.get(t.id).let { now -> if (now.str("etag") != l.str("etag")) return@runCatching now }
-                    saved = tt.update(t.id, projectId, c)
-                    Repo.put(this, TickTick.parse(saved!!, t.list).copy(modified = System.currentTimeMillis()))
-                    if (!complete) undo = Undo(t, projectId, before(l, c), System.currentTimeMillis())
-                }
-                if (complete) { tt.complete(projectId, t.id); Repo.remove(this, t.id) }
-                null
+                if (c.length() > 0) sent = push(t, l, c, force)
+                if (complete && sent?.theirs == null) { tt.complete(projectId, t.id); Repo.remove(this, t.id) }
             }
             runOnUiThread {
                 busy = false
-                saved?.let { if (editing === t) loaded = it }   // if completing fails next, a retry compares against this version
-                r.onSuccess { theirs ->
-                    if (theirs != null) {
-                        editable(true); editStatus.text = ""
-                        ask("This task changed in TickTick since you opened it. Saving puts your version of the fields you edited over theirs.",
-                            "Save mine", { save(force = true, complete) }, "Show theirs") { fill(theirs) }
-                    } else { note = if (complete) "Completed “${t.title}”" else null; showSearch() }   // a save shows its undo instead
+                val ok = sent?.let { landed(t, l, c, it, record = true) { save(force = true, complete) } } ?: true
+                r.onSuccess {
+                    when {
+                        !ok -> { editable(true); editStatus.text = "" }
+                        complete -> { note = "Completed “${t.title}”"; showSearch() }
+                        else -> leave()
+                    }
                 }.onFailure {
                     editable(true)
                     editStatus.text = when {
@@ -540,12 +640,16 @@ class SearchActivity : Activity() {
         }
     }
 
-    /** The fields [c] touched, as they were in [l], to send back on undo. */
-    private fun before(l: JSONObject, c: JSONObject) = JSONObject().also { b ->
-        for (k in c.keys()) b.put(k, if (l.isNull(k)) when (k) { "items" -> JSONArray(); "priority" -> 0; else -> "" } else JSONObject(l.toString()).get(k))
+    /** The fields the editor changes, as they are in [j], to send back on undo. */
+    private fun fields(j: JSONObject): JSONObject {
+        val checklist = j.str("kind") == "CHECKLIST"
+        val f = JSONObject().put("title", j.str("title")).put("priority", j.optInt("priority"))
+        f.put(if (checklist) "desc" else "content", j.str(if (checklist) "desc" else "content"))
+        if (checklist) f.put("items", JSONArray(items(j)))
+        return f
     }
 
-    /** Puts back the fields the last save changed. */
+    /** Puts back what the editor saved, as it was when you opened it. */
     private fun undoSave() {
         val u = undo ?: return
         if (busy) return
@@ -574,13 +678,20 @@ class SearchActivity : Activity() {
     }
 
     private fun back() {
-        if (busy) return
-        if (changes().length() > 0) save(force = false, complete = false)   // leaving saves; the status line offers undo
-        else showSearch()
+        if (busy) { leaving = true; return }   // a save is on its way: go once it lands
+        if (changes().length() > 0) save(force = false, complete = false) else leave()
+    }
+
+    /** Back to the matches. If anything was saved, the status line offers to put the task back as it was when you opened it. */
+    private fun leave() {
+        val t = editing; val o = opened
+        if (t != null && o != null && history.isNotEmpty()) { undo = Undo(t, o.getString("projectId"), fields(o), System.currentTimeMillis()); note = null }
+        showSearch()
     }
 
     private fun showSearch() {
-        editing = null; loaded = null
+        handler.removeCallbacks(autosaveRun)
+        editing = null; loaded = null; opened = null; history.clear(); lastSent = null; leaving = false
         banner.visibility = View.GONE; editPage.visibility = View.GONE; searchPage.visibility = View.VISIBLE
         setFinishOnTouchOutside(true)
         box.requestFocus()

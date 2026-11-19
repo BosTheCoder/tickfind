@@ -109,7 +109,8 @@
                             <TextBlock Text="Complete"/>
                         </StackPanel>
                     </Button>
-                    <Button x:Name="SaveButton" DockPanel.Dock="Right" Content="Save  (Ctrl+S)" Background="#4772FA"/>
+                    <Button x:Name="SaveButton" DockPanel.Dock="Right" Content="Done" ToolTip="Saves as you type; Done (or Esc) goes back" Background="#4772FA"/>
+                    <Button x:Name="UndoButton" DockPanel.Dock="Right" Content="Undo" ToolTip="Step back one save" Margin="0,0,8,0"/>
                     <TextBlock x:Name="EditStatus" Opacity="0.6" FontSize="12" VerticalAlignment="Center" Margin="12,0" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
                 <!-- Asks before anything could be lost: unsaved changes, or a change made in TickTick meanwhile -->

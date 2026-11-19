@@ -35,7 +35,7 @@ Tickfind is a search box that's always one action away. It keeps an index of eve
 - **Sorted by priority by default**, then by how well it matches, then by what changed last. Switch to best match, due date, recently changed or recently added, as the default or for one search.
 - **Filters in the box:** `#tag`, `~list`, `!high`, `due:today`, `is:note`, `-word`, `"exact words"` and more ([full list](#search)). Set a default filter that's added to every search, and leave whole lists out. Calendar-synced lists (any list with GCAL in its name) are never shown.
 - **Forgiving.** If nothing matches exactly, it allows a typo per word, so `glnace` still finds *Glance*.
-- **Quick edit.** Tap a match to read it, change the title, notes or priority, tick or add checklist items, or complete it. Leaving the editor saves (Back, Esc, closing the box or switching app); for 10 minutes after, tapping *Saved … · undo* in the status line puts it back. Before it saves, it checks whether the task changed in TickTick since you opened it, and asks rather than overwrite.
+- **Quick edit.** Tap a match to read it, change the title, notes or priority, tick or add checklist items, or complete it. It saves as you type (3 seconds after you pause, at most every 15 seconds) and when you leave. *Undo* in the editor first drops what isn't saved yet, then steps back one save at a time. For 10 minutes after you leave, tapping *Saved … · undo* in the status line puts the task back as it was when you opened it. Before it saves, it checks whether the task changed in TickTick since you opened it, and asks rather than overwrite.
 - **Open in TickTick** is one tap away from any match.
 - **Compact or bigger.** A few matches by default; <kbd>Ctrl</kbd>+<kbd>E</kbd> (or ⤢) shows more.
 - **Searches everything if you need it:** the last row hands your search to TickTick's own search, which includes completed tasks.
@@ -81,7 +81,7 @@ Windows: ⚙ → **Check for updates** (it also tells you in the box when there'
 | <kbd>↑</kbd> <kbd>↓</kbd>, then <kbd>Enter</kbd> (or click / tap) | Open a match in the quick editor |
 | <kbd>Ctrl</kbd>+<kbd>Enter</kbd> on Windows, long-press on Android | Open the match in TickTick |
 | <kbd>Ctrl</kbd>+<kbd>E</kbd> or ⤢ | Show more matches (and again for fewer) |
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> / **Save** in the editor | Save your changes to TickTick |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> in the editor | Save now (it also saves as you type) |
 | <kbd>Ctrl</kbd>+<kbd>L</kbd> / **Copy link** in the editor | Copy the task's TickTick link |
 | **Complete** in the editor | Mark it done (anything you typed is saved first) |
 | <kbd>Esc</kbd> / Back | From the editor: back to the matches. From the matches: close |
