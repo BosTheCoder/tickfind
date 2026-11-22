@@ -239,7 +239,7 @@ class SearchActivity : Activity() {
                     // A picked list (~"name") gets a way into TickTick at that list.
                     val one = hits.map { it.task.projectId }.distinct().singleOrNull()
                     if ('~' in q && one != null) row(R.drawable.ic_check, "Open ${hits[0].task.list} in TickTick", "The whole list, in the TickTick app") {
-                        TickTick.open(this, one, "", store.web); finish()
+                        TickTick.openList(this, one, store.web); finish()
                     }
                     for (h in hits.take(max)) taskRow(h.task, terms)
                     if (hits.isNotEmpty()) firstOpen = { openEditor(hits[0].task) }

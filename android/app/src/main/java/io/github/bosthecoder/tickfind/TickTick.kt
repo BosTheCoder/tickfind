@@ -40,6 +40,14 @@ class TickTick(private val store: Store) {
             ctx.startActivity(view)
         }
 
+        /** The app ignores which list a webapp link names, but has its own list link (seen in its 8.3 manifest); the web list is the fallback. */
+        fun openList(ctx: Context, projectId: String, web: Boolean) {
+            if (!web) try {
+                ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("ticktick://v2/list/$projectId")).setPackage(PACKAGE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return
+            } catch (_: ActivityNotFoundException) { }
+            open(ctx, projectId, "", true)
+        }
+
         private fun b64(b: ByteArray) = Base64.encodeToString(b, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
         private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
         private val iso = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss[.SSS]xx")
