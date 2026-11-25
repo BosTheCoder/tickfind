@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace Tickfind;
 
-/// Everything you can change, saved as settings.json next to Tickfind.exe. Hand edits are read each time the box opens.
+/// Everything you can change, saved as tickfind.json next to Tickfind.exe. Hand edits are read each time the box opens.
 public class Settings
 {
     public string? Hotkey { get; set; } = "Ctrl+Alt+F";   // null or "" = none
@@ -36,7 +36,23 @@ public class Settings
         ];
     }
 
-    public static string Path => System.IO.Path.Combine(AppContext.BaseDirectory, "settings.json");
+    public static readonly string Path = OwnFile("tickfind.json", "settings.json");
+
+    /// A file next to the exe under a name no sibling app uses, so Tickfind can share a folder with Glance
+    /// (which keeps settings.json and token.dat there too). Moves the file from its old name when Tickfind is
+    /// the only exe in the folder; with another app there the old file may be that app's, so it's left alone.
+    public static string OwnFile(string name, string oldName)
+    {
+        var dir = AppContext.BaseDirectory;
+        var path = System.IO.Path.Combine(dir, name);
+        var old = System.IO.Path.Combine(dir, oldName);
+        try
+        {
+            if (!File.Exists(path) && File.Exists(old) && Directory.GetFiles(dir, "*.exe").Length == 1) File.Move(old, path);
+        }
+        catch { }
+        return path;
+    }
     // Relaxed escaping keeps "Ctrl+Alt+F" readable in the file rather than "Ctrl\u002BAlt\u002BF".
     static readonly JsonSerializerOptions Json = new() { WriteIndented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 

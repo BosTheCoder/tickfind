@@ -1040,7 +1040,7 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(Item("Sync now (Ctrl+R)", () => _ = Sync()));
         m.Items.Add(Item("Search tips", () => { tips = true; Render(); }));
-        m.Items.Add(Item("Edit settings.json", () => { Persist(); Process.Start(new ProcessStartInfo(Settings.Path) { UseShellExecute = true }); }));
+        m.Items.Add(Item("Edit tickfind.json", () => { Persist(); Process.Start(new ProcessStartInfo(Settings.Path) { UseShellExecute = true }); }));
         m.Items.Add(Item(update != null ? $"Update to {update.Tag}" : "Check for updates", () => _ = update != null ? Install() : CheckUpdate(quiet: false)));
         if (!demo) m.Items.Add(Item(tt.SignedIn ? "Sign out of TickTick" : "Sign in to TickTick", () =>
         {

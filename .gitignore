@@ -13,3 +13,5 @@ android/app/build/
 android/dist/
 android/local.properties
 .kotlin/
+tickfind.json
+tickfind-token.dat

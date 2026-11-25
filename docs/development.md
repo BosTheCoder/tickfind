@@ -31,7 +31,7 @@ just android    # unit tests + signed release APK in android/dist/Tickfind.apk
 | `windows/Search.cs` | The search: parsing filters, matching, scoring, the typo fallback, sorting, snippets. Pure, tested |
 | `windows/TickTick.cs` | Sign-in (dynamic client registration + PKCE + loopback redirect), the MCP calls, sync, parsing |
 | `windows/MainWindow.xaml(.cs)` | The box: matches, keys, the quick editor, the ⚙ menu |
-| `windows/Settings.cs` | `settings.json` |
+| `windows/Settings.cs` | `tickfind.json` |
 | `windows/Native.cs` | Global hotkey, acrylic backdrop, the work area under the mouse |
 | `windows/Updater.cs` | Self-update from the latest GitHub release (same as Glance) |
 | `windows/Demo.cs` | Made-up tasks for `--demo` |

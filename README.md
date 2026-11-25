@@ -120,11 +120,11 @@ The starting five:
 | Recently added | `sort:created` |
 | Lists | `is:list`: every list, most tasks first. Typing narrows them by name; pick one and the box fills with `~"that list"` |
 
-Change them on Windows under ⚙ → **Views…** (or `Views` in settings.json) and on Android in Settings → **Views**: rename, edit the search, ↑ ↓ to reorder, ✕ to remove, **Add view**. A view with an empty search lists everything in your default sort.
+Change them on Windows under ⚙ → **Views…** (or `Views` in tickfind.json) and on Android in Settings → **Views**: rename, edit the search, ↑ ↓ to reorder, ✕ to remove, **Add view**. A view with an empty search lists everything in your default sort.
 
 ### Settings
 
-On Windows, ⚙ has the common ones: sort order, how many matches, where **Open in TickTick** goes, the shortcut, lists to leave out, archived lists, start with Windows. Everything is also in `settings.json` next to the exe, picked up the next time the box opens:
+On Windows, ⚙ has the common ones: sort order, how many matches, where **Open in TickTick** goes, the shortcut, lists to leave out, archived lists, start with Windows. Everything is also in `tickfind.json` next to the exe, picked up the next time the box opens:
 
 | Setting | Default | |
 | --- | --- | --- |

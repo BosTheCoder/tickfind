@@ -23,7 +23,7 @@ public class TickTick
     const string Mcp = "https://mcp.ticktick.com/";
     const string Auth = "https://ticktick.com/oauth/authorize", TokenUrl = "https://api.ticktick.com/oauth/token",
         Register = "https://api.ticktick.com/oauth/register", Scope = "tasks:read tasks:write";
-    static string TokenPath => Path.Combine(AppContext.BaseDirectory, "token.dat");
+    static readonly string TokenPath = Settings.OwnFile("tickfind-token.dat", "token.dat");
 
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(60) };
     string? token;
